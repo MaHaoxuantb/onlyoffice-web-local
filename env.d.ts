@@ -10,3 +10,9 @@ interface ImportMetaEnv {
 interface ImportMeta {
   readonly env: ImportMetaEnv
 }
+
+interface Window {
+  DocsAPI: {
+    DocEditor: new (elementId: string, config: Record<string, unknown>) => any
+  }
+}

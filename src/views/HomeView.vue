@@ -1,8 +1,7 @@
 <template>
   <div class="home">
-    <!-- 顶部操作区域 -->
     <div class="top-operation-bar" v-if="!docmentObj?.fileName">
-      <el-button type="primary" @click="showCreateDialog = true">新建/打开文件</el-button>
+      <el-button type="primary" @click="showCreateDialog = true">New or open a file</el-button>
     </div>
     <div class="editor-content">
       <DocumentHandler
@@ -11,37 +10,40 @@
         :file="docmentObj"
         ref="documentHandler"
       />
-      <!-- 主要内容区域 -->
       <div class="main-content" v-else>
-        <h1>欢迎使用文档编辑器</h1>
-        <p>点击顶部按钮开始创建或打开文档</p>
+        <h1>ONLYOFFICE for LFOS</h1>
+        <p>Create a document or open a Microsoft Office file to get started.</p>
       </div>
     </div>
 
-    <!-- 使用DocumentHandler组件，通过prop传递文件 -->
-
-    <!-- 面板转换为对话框 -->
-    <el-dialog v-model="showCreateDialog" title="新建/打开文件" width="450px" center>
+    <el-dialog v-model="showCreateDialog" title="New or open a file" width="450px" center>
       <div id="panel-createnew">
-        <div class="header">新建</div>
+        <div class="header">Create new</div>
         <div class="thumb-list">
           <div class="thumb-wrap" template="WORD" @click="onCreateNew('.docx')">
             <div class="thumb" style="background-image: url('./img/doc-formats/docx.png')"></div>
-            <div class="title">文档</div>
+            <div class="title">Document</div>
           </div>
           <div class="thumb-wrap" template="EXCEL" @click="onCreateNew('.xlsx')">
             <div class="thumb" style="background-image: url('./img/doc-formats/xlsx.png')"></div>
-            <div class="title">表格</div>
+            <div class="title">Spreadsheet</div>
           </div>
           <div class="thumb-wrap" template="PPT" @click="onCreateNew('.pptx')">
             <div class="thumb" style="background-image: url('./img/doc-formats/pptx.png')"></div>
-            <div class="title">演示文稿</div>
+            <div class="title">Presentation</div>
           </div>
         </div>
-        <div class="header">打开</div>
+        <div class="header">Open</div>
         <div class="open-container">
-          <el-button type="info" size="large" :icon="FolderOpened" @click="onOpenDocument" plain>
-            打开本地文件
+          <el-button
+            type="info"
+            size="large"
+            :icon="FolderOpened"
+            :loading="isOpening"
+            @click="onOpenDocument"
+            plain
+          >
+            Open a file
           </el-button>
         </div>
       </div>
@@ -55,22 +57,47 @@ import { onMounted, ref } from 'vue'
 import { DocmentType } from '@/utils/util'
 import DocumentHandler from '../components/DocumentHandler.vue'
 import { useRoute } from 'vue-router'
-import { ElLoading } from 'element-plus'
+import { ElLoading, ElMessage } from 'element-plus'
+import { getInitialLFOSFile, openFileFromLFOS } from '@/services/lfos'
+
 const showCreateDialog = ref(false)
-const selectedFile = ref<File | null>(null)
 const documentHandler = ref<InstanceType<typeof DocumentHandler> | null>(null)
 const docmentObj = ref<DocmentType | null>(null)
+const isOpening = ref(false)
+const route = useRoute()
 
 const onCreateNew = (ext: string) => {
   docmentObj.value = {
-    fileName: '新建文档' + ext,
+    fileName: 'New document' + ext,
     file: null,
   }
   showCreateDialog.value = false
 }
 
 const onOpenDocument = async () => {
-  // 创建文件选择器，选择Office文档
+  isOpening.value = true
+  try {
+    const lfosResult = await openFileFromLFOS()
+    if (lfosResult.status === 'opened') {
+      showCreateDialog.value = false
+      docmentObj.value = {
+        fileName: lfosResult.file.name,
+        file: lfosResult.file,
+      }
+      return
+    }
+    if (lfosResult.status === 'cancelled') return
+
+    openWithBrowserPicker()
+  } catch (error) {
+    console.error('Could not open the file:', error)
+    ElMessage.error('The file could not be opened. Please try again.')
+  } finally {
+    isOpening.value = false
+  }
+}
+
+const openWithBrowserPicker = () => {
   const input = document.createElement('input')
   input.type = 'file'
   input.accept = '.docx,.xlsx,.pptx,.doc,.xls,.ppt'
@@ -88,13 +115,11 @@ const onOpenDocument = async () => {
 
   input.click()
 }
-// 页面初始化后根据路由地址获取文件 并自动打开
+
 async function initFileUrl() {
-  const route = useRoute()
   const url = route.query.url as string | undefined
   const filenameParam = route.query.filename as string | undefined
   if (!url) {
-    console.warn('未提供文件 URL')
     return
   }
   const laodingInstance = ElLoading.service({
@@ -105,17 +130,14 @@ async function initFileUrl() {
   try {
     const res = await fetch(url)
 
-    if (!res.ok) throw new Error('文件请求失败')
-    laodingInstance.close()
+    if (!res.ok) throw new Error('The file request failed')
     const blob = await res.blob()
     let fileName = ''
 
-    // 1. 从 query 参数获取 filename
     if (filenameParam) {
       fileName = filenameParam
     }
 
-    // 2. 如果没有 filename 参数，尝试从 URL 末尾解析
     if (!fileName) {
       const match = decodeURIComponent(url).match(/\/([^\/?#]+)$/)
       if (match && match[1].includes('.')) {
@@ -123,7 +145,6 @@ async function initFileUrl() {
       }
     }
 
-    // 3. 如果 URL 也解析失败，尝试从 Content-Disposition 响应头获取
     if (!fileName) {
       const disposition = res.headers.get('Content-Disposition')
       if (disposition) {
@@ -134,23 +155,33 @@ async function initFileUrl() {
       }
     }
 
-    // 4. 最终还拿不到文件名，拒绝处理
     if (!fileName) {
-      console.error('无法确定文件名，拒绝打开')
-      return
+      throw new Error('The file name could not be determined')
     }
 
     const file = new File([blob], fileName, { type: blob.type })
-    debugger
     docmentObj.value = { fileName, file }
     showCreateDialog.value = false
   } catch (err) {
-    console.error('加载文件失败:', err)
+    console.error('Could not load the remote file:', err)
+    ElMessage.error('The remote file could not be loaded.')
+  } finally {
     laodingInstance.close()
   }
 }
-onMounted(() => {
-  initFileUrl()
+onMounted(async () => {
+  try {
+    const activationFile = await getInitialLFOSFile()
+    if (activationFile) {
+      docmentObj.value = { fileName: activationFile.name, file: activationFile }
+      return
+    }
+  } catch (error) {
+    console.error('Could not open the LFOS activation file:', error)
+    ElMessage.error('The LFOS file could not be opened.')
+  }
+
+  await initFileUrl()
 })
 </script>
 

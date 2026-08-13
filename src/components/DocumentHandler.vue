@@ -5,7 +5,7 @@
 </template>
 
 <script lang="ts" setup>
-import { onMounted, onBeforeUnmount, ref, watchEffect, watch } from 'vue'
+import { onMounted, onBeforeUnmount, ref, watch } from 'vue'
 import { getDocumentType, DocmentType } from '@/utils/util'
 import { g_sEmpty_bin } from '@/utils/empty_bin'
 // @ts-ignore
@@ -13,9 +13,12 @@ import {
     initX2TScript,
     initX2T,
     convertDocument,
-    convertBinToDocumentAndDownload,
+    convertBinToDocument,
+    getDocumentMimeType,
+    saveDocumentToDevice,
     c_oAscFileType2,
 } from '@/utils/x2t'
+import { saveFileToLFOS } from '@/services/lfos'
 const X2T = ref(null)
 // 设置prop
 const props = defineProps<{
@@ -47,7 +50,7 @@ onMounted(async () => {
                     await openFile()
                 } catch (error) {
                     console.error('Error opening file:', error)
-                    alert('文件打开失败，请检查文件格式')
+                    alert('The file could not be opened. Please check that its format is supported.')
                 }
             },
             { immediate: true }, // 立即执行一次以处理初始值
@@ -69,7 +72,7 @@ async function handleDocumentOperation(options: { isNew: boolean; fileName: stri
 
         // 获取文档内容
         let documentData: {
-            bin: ArrayBuffer
+            bin: Uint8Array | string
             media?: any
         }
 
@@ -77,12 +80,12 @@ async function handleDocumentOperation(options: { isNew: boolean; fileName: stri
             // 新建文档使用空模板
             const emptyBin = g_sEmpty_bin[`.${fileType}`]
             if (!emptyBin) {
-                throw new Error(`不支持的文件类型: ${fileType}`)
+                throw new Error(`Unsupported file type: ${fileType}`)
             }
             documentData = { bin: emptyBin }
         } else {
             // 打开现有文档需要转换
-            if (!file) throw new Error('无效的文件对象')
+            if (!file) throw new Error('The selected file is invalid')
             documentData = await convertDocument(file)
         }
 
@@ -94,8 +97,8 @@ async function handleDocumentOperation(options: { isNew: boolean; fileName: stri
             media: documentData.media,
         })
     } catch (error: any) {
-        console.error('文档操作失败:', error)
-        alert(`文档操作失败: ${error.message}`)
+        console.error('Document operation failed:', error)
+        alert(`Document operation failed: ${error.message}`)
         throw error
     }
 }
@@ -104,7 +107,7 @@ async function handleDocumentOperation(options: { isNew: boolean; fileName: stri
 function createEditorInstance(config: {
     fileName: string
     fileType: string
-    binData: ArrayBuffer
+    binData: Uint8Array | string
     media?: any
 }) {
     // 清理旧编辑器实例
@@ -127,7 +130,7 @@ function createEditorInstance(config: {
             },
         },
         editorConfig: {
-            lang: 'zh',
+            lang: 'en',
             customization: {
                 help: false,
                 about: false,
@@ -160,7 +163,7 @@ function createEditorInstance(config: {
                 })
             },
             onDocumentReady: () => {
-                console.log('文档加载完成:', fileName)
+                console.log('Document loaded:', fileName)
             },
             onSave: handleSaveDocument,
             // writeFile
@@ -177,7 +180,7 @@ async function openFile() {
     await handleDocumentOperation({
         isNew: !file, // 根据是否存在file判断是否新建
         fileName,
-        file,
+        file: file || undefined,
     })
 }
 
@@ -205,7 +208,7 @@ function loadEditorApi(): Promise<void> {
         script.onload = () => resolve()
         script.onerror = (error) => {
             console.error('Failed to load OnlyOffice API:', error)
-            alert('无法加载编辑器组件。请确保已正确安装 OnlyOffice API。')
+            alert('The ONLYOFFICE editor could not be loaded.')
             reject(error)
         }
         document.head.appendChild(script)
@@ -214,8 +217,8 @@ function loadEditorApi(): Promise<void> {
 
 interface SaveEvent {
     data: {
-        data: string
-        option: any
+        data: { data: Uint8Array }
+        option: { outputformat: number }
     }
 }
 
@@ -224,16 +227,22 @@ async function handleSaveDocument(event: SaveEvent) {
 
     if (event.data && event.data.data) {
         const { data, option } = event.data
-        console.log(data, 'data')
-        debugger
-        // 创建下载
-        await convertBinToDocumentAndDownload(
+        const outputFormat = c_oAscFileType2[option.outputformat] || 'DOCX'
+        const converted = await convertBinToDocument(
             data.data,
             props.file.fileName,
-            c_oAscFileType2[option.outputformat],
+            outputFormat,
         )
-        // const blob = dataURItoBlob(data);
-        // saveAs(blob, props.file.fileName);
+
+        const lfosResult = await saveFileToLFOS(
+            converted.data,
+            converted.fileName,
+            getDocumentMimeType(converted.fileName),
+        )
+
+        if (lfosResult === 'unavailable') {
+            await saveDocumentToDevice(converted.data, converted.fileName)
+        }
     }
 
     // 告知编辑器保存完成
@@ -243,28 +252,11 @@ async function handleSaveDocument(event: SaveEvent) {
     })
 }
 
-// 辅助函数：将base64转为Blob
-function dataURItoBlob(dataURI: string): Blob {
-    // 从base64字符串中提取数据部分
-    const byteString = atob(dataURI.split(',')[1])
-
-    // 创建ArrayBuffer
-    const ab = new ArrayBuffer(byteString.length)
-    const ia = new Uint8Array(ab)
-
-    for (let i = 0; i < byteString.length; i++) {
-        ia[i] = byteString.charCodeAt(i)
-    }
-
-    return new Blob([ab])
-}
-
 /**
  * 处理文件写入请求（主要用于处理粘贴的图片）
  * @param event - OnlyOffice 编辑器的文件写入事件
  */
 function handleWriteFile(event: any) {
-    debugger
     try {
         console.log('Write file event:', event)
 
@@ -319,6 +311,7 @@ function handleWriteFile(event: any) {
         })
         console.log(`Successfully processed image: ${fileName}, URL: ${media}`)
     } catch (error) {
+        const message = error instanceof Error ? error.message : 'Unknown error'
         console.error('Error handling writeFile:', error)
 
         // 通知编辑器文件处理失败
@@ -327,7 +320,7 @@ function handleWriteFile(event: any) {
                 command: 'asc_writeFileCallback',
                 data: {
                     success: false,
-                    error: error.message,
+                    error: message,
                 },
             })
         }
@@ -335,7 +328,7 @@ function handleWriteFile(event: any) {
         if (event.callback && typeof event.callback === 'function') {
             event.callback({
                 success: false,
-                error: error.message,
+                error: message,
             })
         }
     }
@@ -392,4 +385,3 @@ onBeforeUnmount(() => {
     height: 100%;
 }
 </style>
-

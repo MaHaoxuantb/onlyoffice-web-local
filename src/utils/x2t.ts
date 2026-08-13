@@ -323,10 +323,8 @@ class X2TConverter {
         }
     }
 
-    /**
-     * 将 bin 格式转换为指定格式并下载
-     */
-    async convertBinToDocumentAndDownload(
+    /** Convert the editor's binary format to a downloadable Office document. */
+    async convertBinToDocument(
         bin: Uint8Array,
         originalFileName: string,
         targetExt = 'DOCX',
@@ -361,10 +359,6 @@ class X2TConverter {
             // 读取生成的文档
             const result = this.x2tModule!.FS.readFile(`/working/${outputFileName}`)
 
-            // 下载文件
-            // TODO: 完善打印功能
-            this.saveWithFileSystemAPI(result, outputFileName)
-
             return {
                 fileName: outputFileName,
                 data: result,
@@ -374,6 +368,20 @@ class X2TConverter {
                 `Bin to document conversion failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
             )
         }
+    }
+
+    async convertBinToDocumentAndDownload(
+        bin: Uint8Array,
+        originalFileName: string,
+        targetExt = 'DOCX',
+    ): Promise<BinConversionResult> {
+        const result = await this.convertBinToDocument(bin, originalFileName, targetExt)
+        await this.saveWithFileSystemAPI(result.data, result.fileName)
+        return result
+    }
+
+    async saveDocumentToDevice(data: Uint8Array, fileName: string): Promise<void> {
+        await this.saveWithFileSystemAPI(data, fileName)
     }
 
     /**
@@ -520,11 +528,33 @@ const x2tConverter = new X2TConverter()
 export const initX2TScript = () => x2tConverter.loadScript()
 export const initX2T = () => x2tConverter.initialize()
 export const convertDocument = (file: File) => x2tConverter.convertDocument(file)
+export const convertBinToDocument = (
+    bin: Uint8Array,
+    fileName: string,
+    targetExt?: string,
+) => x2tConverter.convertBinToDocument(bin, fileName, targetExt)
 export const convertBinToDocumentAndDownload = (
     bin: Uint8Array,
     fileName: string,
     targetExt?: string,
 ) => x2tConverter.convertBinToDocumentAndDownload(bin, fileName, targetExt)
+export const saveDocumentToDevice = (data: Uint8Array, fileName: string) =>
+    x2tConverter.saveDocumentToDevice(data, fileName)
+
+export const getDocumentMimeType = (fileName: string): string => {
+    const extension = fileName.split('.').pop()?.toLowerCase() || ''
+    const mimeTypes: Record<string, string> = {
+        docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        doc: 'application/msword',
+        xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        xls: 'application/vnd.ms-excel',
+        pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+        ppt: 'application/vnd.ms-powerpoint',
+        pdf: 'application/pdf',
+    }
+
+    return mimeTypes[extension] || 'application/octet-stream'
+}
 
 // 文件类型常量
 export const oAscFileType = {

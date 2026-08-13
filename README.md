@@ -1,10 +1,6 @@
-# office-web-local
+# ONLYOFFICE for LFOS
 
-A purely local project based on OnlyOffice, supporting local `opening and editing` of Office documents.
-
-[Live Demo🪄](https://sweetwisdom.github.io/onlyoffice-web-local/)
-
-A local web-based document editor based on OnlyOffice, allowing you to edit documents directly in your browser without server-side processing, ensuring your privacy and security.
+A browser-based ONLYOFFICE editor adapted for LFOS. Documents are converted and edited locally with WebAssembly; LFOS file handles are used when the app runs inside LFOS, with standard browser file pickers as a fallback.
 
 
 [English](README.md) | [中文](readme.zh.md)
@@ -17,6 +13,8 @@ A local web-based document editor based on OnlyOffice, allowing you to edit docu
 - ⚡ **Real-Time Editing**: Provides smooth real-time document editing experience
 - 🚀 **No Server Required**: Pure frontend implementation with no server-side processing needed
 - 🎯 **Ready to Use**: Start editing documents immediately by opening the webpage
+- 🗂️ **LFOS Integration**: Opens launch-activated files and uses the LFOS virtual drive for open/save
+- 🌐 **English UI**: The app shell and ONLYOFFICE editor default to English
 
 ## 🛠️ Technical Architecture
 
@@ -87,6 +85,32 @@ pnpm dev
 ```sh
 pnpm build
 ```
+
+The production output is written to `html/`.
+
+## Deploy to Vercel
+
+The repository includes `vercel.json`; importing the repository into Vercel is sufficient. Vercel runs `pnpm install --frozen-lockfile`, builds the Vite app, and serves `html/`.
+
+The deployment sets the correct `application/wasm` content type and intentionally does not emit `X-Frame-Options` or a restrictive `frame-ancestors` policy, so LFOS can embed the app.
+
+At build time, `scripts/generate-lfos-manifest.mjs` writes `html/ONLYOFFICE.app` using Vercel's deployment URL. For a custom production domain, set this Vercel environment variable:
+
+```text
+LFOS_APP_URL=https://office.example.com
+```
+
+## Install in LFOS
+
+LFOS currently consumes an editable `.app` JSON file in `/Applications`; it does not automatically discover a remote web manifest. After deploying:
+
+1. In LFOS, open **Settings → Web apps**, enter `ONLYOFFICE` and the deployment's HTTPS URL, and choose **Add to Applications**.
+2. In Finder, right-click the new `.app` file and choose **Edit Configuration**.
+3. Copy the deployed `https://YOUR-DEPLOYMENT/ONLYOFFICE.app` configuration into it. You can also start from `lfos/ONLYOFFICE.app` and replace `YOUR-PROJECT`.
+
+The configuration declares `files:open` and `files:save`, plus these Microsoft Office associations: `.doc`, `.docx`, `.xls`, `.xlsx`, `.ppt`, and `.pptx`. They are deliberately not marked as the default so the built-in LFOS Office handler is not silently replaced; users can choose ONLYOFFICE from **Open with…**. Change `default` to `true` only if this app should become the preferred handler.
+
+The implementation follows the [LFOS hosted-app guide](https://os-docs.linecoflow.com/docs/getting-started/bring-your-web-app), [app configuration reference](https://os-docs.linecoflow.com/docs/reference/manifest), and [file-association guide](https://os-docs.linecoflow.com/docs/capabilities/file-associations).
 
 ## Docker Support
 

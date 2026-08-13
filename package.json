@@ -1,5 +1,5 @@
 {
-    "name": "onlyoffice-web-local",
+    "name": "onlyoffice-for-lfos",
     "version": "1.0.0",
     "private": true,
     "type": "module",
@@ -14,10 +14,9 @@
     "vite",
     "esm"
   ],
-  "homepage": "https://sweetwisdom.github.io/onlyoffice-web-local/",
     "scripts": {
         "dev": "vite",
-        "build": "vite build",
+        "build": "node scripts/build.mjs",
         "preview": "vite preview",
         "test:e2e": "playwright test",
         "build-only": "vite build",
@@ -55,4 +54,3 @@
         "pnpm": ">=9"
     }
 }
-
