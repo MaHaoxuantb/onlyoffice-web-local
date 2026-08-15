@@ -57,7 +57,6 @@ onMounted(async () => {
             },
             { immediate: true }, // 立即执行一次以处理初始值
         )
-
     } catch (error) {
         console.error('Failed to initialize editor:', error)
         // 错误已在各函数中处理
@@ -86,7 +85,7 @@ async function handleDocumentOperation(options: { isNew: boolean; fileName: stri
         } else {
             // 打开现有文档需要转换
             if (!file) throw new Error('The selected file is invalid')
-        documentData = await convertDocument(file)
+            documentData = await convertDocument(file)
         }
 
         // 创建编辑器实例

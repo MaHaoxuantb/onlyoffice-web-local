@@ -80,6 +80,14 @@ pnpm install
 pnpm dev
 ```
 
+Development builds use the LFOS SDK served by `http://127.0.0.1:3000` so the app and local shell stay on the same protocol version. When LFOS runs elsewhere, set `VITE_LFOS_SDK_URL` explicitly:
+
+```sh
+VITE_LFOS_SDK_URL=http://localhost:3001/sdk/v1/lfos.js pnpm dev
+```
+
+Production builds use `https://os.linecoflow.com/sdk/v1/lfos.js` unless the same variable is set during the build.
+
 ### Type-Check, Compile, and Minify for Production
 
 ```sh
