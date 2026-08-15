@@ -3,7 +3,7 @@
 A browser-based ONLYOFFICE editor adapted for LFOS. Documents are converted and edited locally with WebAssembly; LFOS file handles are used when the app runs inside LFOS, with standard browser file pickers as a fallback.
 
 
-[English](README.md) | [中文](readme.zh.md)
+[English](README.md)
 
 
 ## ✨ Key Features
