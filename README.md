@@ -110,6 +110,8 @@ LFOS currently consumes an editable `.app` JSON file in `/Applications`; it does
 
 The configuration declares `files:open` and `files:save`, plus these Microsoft Office associations: `.doc`, `.docx`, `.xls`, `.xlsx`, `.ppt`, and `.pptx`. They are deliberately not marked as the default so the built-in LFOS Office handler is not silently replaced; users can choose ONLYOFFICE from **Open with…**. Change `default` to `true` only if this app should become the preferred handler.
 
+When a document is launched through **Open with…** or selected with the LFOS open dialog, ONLYOFFICE retains its opaque LFOS handle. Normal **Save** writes back to that same virtual-drive location. A destination selector is used only for a new document, a browser-imported file, or **Save As**. Removing `files:save` from the installed configuration disables LFOS write-back.
+
 The implementation follows the [LFOS hosted-app guide](https://os-docs.linecoflow.com/docs/getting-started/bring-your-web-app), [app configuration reference](https://os-docs.linecoflow.com/docs/reference/manifest), and [file-association guide](https://os-docs.linecoflow.com/docs/capabilities/file-associations).
 
 ## Docker Support

@@ -1,4 +1,8 @@
-const LFOS_SDK_URL = 'https://os.linecoflow.com/sdk/v1/lfos.js'
+const LFOS_SDK_URL =
+  import.meta.env.VITE_LFOS_SDK_URL ||
+  (import.meta.env.DEV
+    ? 'http://127.0.0.1:3000/sdk/v1/lfos.js'
+    : 'https://os.linecoflow.com/sdk/v1/lfos.js')
 
 export interface LFOSFileHandle {
   id: string
@@ -56,6 +60,7 @@ export type LFOSOpenResult =
 export type LFOSSaveResult = 'saved' | 'cancelled' | 'unavailable'
 
 let connectionPromise: Promise<LFOSApi | null> | null = null
+const sourceHandles = new WeakMap<File, LFOSFileHandle>()
 
 function mimeTypeFromFileName(fileName: string): string {
   const extension = fileName.split('.').pop()?.toLowerCase()
@@ -94,12 +99,15 @@ export function getLFOS(): Promise<LFOSApi | null> {
 async function fileFromHandle(lfos: LFOSApi, handle: LFOSFileHandle): Promise<File> {
   try {
     const bytes = await lfos.files.read(handle)
-    return new File([bytes], handle.name, {
+    const file = new File([bytes], handle.name, {
       type: handle.type || mimeTypeFromFileName(handle.name),
       lastModified: handle.lastModified || Date.now(),
     })
-  } finally {
+    sourceHandles.set(file, handle)
+    return file
+  } catch (error) {
     await lfos.files.release(handle)
+    throw error
   }
 }
 
@@ -122,7 +130,14 @@ export async function openFileFromLFOS(): Promise<LFOSOpenResult> {
       {
         description: 'Microsoft Word, Excel, or PowerPoint',
         extensions: ['.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx'],
-        mimeTypes: ['application/*'],
+        mimeTypes: [
+          'application/msword',
+          'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+          'application/vnd.ms-excel',
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          'application/vnd.ms-powerpoint',
+          'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+        ],
       },
     ],
   })
@@ -135,9 +150,17 @@ export async function saveFileToLFOS(
   data: Uint8Array,
   fileName: string,
   mimeType: string,
+  sourceFile?: File | null,
 ): Promise<LFOSSaveResult> {
   const lfos = await getLFOS()
   if (!lfos || !lfos.capabilities.has('files.save')) return 'unavailable'
+
+  const sourceHandle = sourceFile ? sourceHandles.get(sourceFile) : undefined
+  if (sourceFile && sourceHandle) {
+    const updated = await lfos.files.write(sourceHandle, data)
+    sourceHandles.set(sourceFile, updated)
+    return 'saved'
+  }
 
   const extension = fileName.includes('.') ? `.${fileName.split('.').pop()!.toLowerCase()}` : undefined
   const handle = await lfos.files.save({
@@ -150,10 +173,10 @@ export async function saveFileToLFOS(
   if (!handle) return 'cancelled'
 
   try {
-    await lfos.files.write(handle, data)
+    const updated = await lfos.files.write(handle, data)
+    if (sourceFile) sourceHandles.set(sourceFile, updated)
     return 'saved'
   } finally {
-    await lfos.files.release(handle)
+    if (!sourceFile) await lfos.files.release(handle)
   }
 }
-

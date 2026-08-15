@@ -473,7 +473,11 @@ class X2TConverter {
         fileName: string,
         mimeType?: string,
     ): Promise<void> {
-        if (!(window as any).showSaveFilePicker) {
+        // The browser File System Access picker is prohibited in cross-origin
+        // subframes. Embedded LFOS apps save through the LFOS File SDK; when
+        // that capability is absent, preserve the user's work as a download
+        // instead of calling a picker that the browser will reject.
+        if (window.self !== window.top || !(window as any).showSaveFilePicker) {
             this.downloadFile(data, fileName)
             return
         }

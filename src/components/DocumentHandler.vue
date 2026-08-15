@@ -1,5 +1,5 @@
 <template>
-    <div class="editor-container" v-loaing="loading" element-loading-text="Loading...">
+    <div class="editor-container" v-loading="loading" element-loading-text="Loading...">
         <div id="iframe"></div>
     </div>
 </template>
@@ -27,6 +27,8 @@ const props = defineProps<{
 
 const editor = ref<any>(null)
 const loading = ref(false)
+let stopFileWatch: (() => void) | null = null
+let documentObjectUrl: string | null = null
 
 // 全局 media 映射对象
 const media: { [key: string]: string } = {}
@@ -43,7 +45,7 @@ onMounted(async () => {
         // 页面初始化后，使用 watchEffect 监听 props.file 并执行 openFile
         // 添加props.file监听
 
-        const stopWatch = watch(
+        stopFileWatch = watch(
             () => props.file.fileName,
             async () => {
                 try {
@@ -56,8 +58,6 @@ onMounted(async () => {
             { immediate: true }, // 立即执行一次以处理初始值
         )
 
-        // 组件卸载时停止监听
-        onBeforeUnmount(stopWatch)
     } catch (error) {
         console.error('Failed to initialize editor:', error)
         // 错误已在各函数中处理
@@ -86,7 +86,7 @@ async function handleDocumentOperation(options: { isNew: boolean; fileName: stri
         } else {
             // 打开现有文档需要转换
             if (!file) throw new Error('The selected file is invalid')
-            documentData = await convertDocument(file)
+        documentData = await convertDocument(file)
         }
 
         // 创建编辑器实例
@@ -95,6 +95,7 @@ async function handleDocumentOperation(options: { isNew: boolean; fileName: stri
             fileType,
             binData: documentData.bin,
             media: documentData.media,
+            sourceFile: file,
         })
     } catch (error: any) {
         console.error('Document operation failed:', error)
@@ -109,6 +110,7 @@ function createEditorInstance(config: {
     fileType: string
     binData: Uint8Array | string
     media?: any
+    sourceFile?: File
 }) {
     // 清理旧编辑器实例
     if (editor.value) {
@@ -116,12 +118,14 @@ function createEditorInstance(config: {
         editor.value = null
     }
 
-    const { fileName, fileType, binData, media } = config
+    const { fileName, fileType, binData, media, sourceFile } = config
+    if (documentObjectUrl) URL.revokeObjectURL(documentObjectUrl)
+    documentObjectUrl = URL.createObjectURL(sourceFile ?? new Blob([]))
 
     editor.value = new window.DocsAPI.DocEditor('iframe', {
         document: {
             title: fileName,
-            url: fileName, // 使用文件名作为标识
+            url: documentObjectUrl,
             fileType: fileType,
             permissions: {
                 edit: true,
@@ -185,12 +189,18 @@ async function openFile() {
 }
 
 onBeforeUnmount(() => {
+    stopFileWatch?.()
+    stopFileWatch = null
     // 清理资源
     if (editor.value) {
         // 如果编辑器有销毁方法，调用它
         if (typeof editor.value.destroyEditor === 'function') {
             editor.value.destroyEditor()
         }
+    }
+    if (documentObjectUrl) {
+        URL.revokeObjectURL(documentObjectUrl)
+        documentObjectUrl = null
     }
 })
 
@@ -238,6 +248,7 @@ async function handleSaveDocument(event: SaveEvent) {
             converted.data,
             converted.fileName,
             getDocumentMimeType(converted.fileName),
+            props.file.file,
         )
 
         if (lfosResult === 'unavailable') {

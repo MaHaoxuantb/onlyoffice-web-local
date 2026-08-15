@@ -19,6 +19,7 @@
         "build": "node scripts/build.mjs",
         "preview": "vite preview",
         "test:e2e": "playwright test",
+        "check:tracking": "node scripts/check-tracking-domains.mjs",
         "build-only": "vite build",
         "type-check": "vue-tsc --build",
         "format": "prettier --write src/"
