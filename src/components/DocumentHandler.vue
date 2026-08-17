@@ -29,6 +29,7 @@ const editor = ref<any>(null)
 const loading = ref(false)
 let stopFileWatch: (() => void) | null = null
 let documentObjectUrl: string | null = null
+let saveInProgress = false
 
 // 全局 media 映射对象
 const media: { [key: string]: string } = {}
@@ -121,6 +122,13 @@ function createEditorInstance(config: {
     if (documentObjectUrl) URL.revokeObjectURL(documentObjectUrl)
     documentObjectUrl = URL.createObjectURL(sourceFile ?? new Blob([]))
 
+    // The upstream editors persist force-save as a per-editor preference and
+    // can otherwise ignore their own Save buttons when no dirty-state signal
+    // is pending. LFOS Save is explicit and must always reach the host.
+    localStorage.setItem('de-settings-forcesave', '1')
+    localStorage.setItem('sse-settings-forcesave', '1')
+    localStorage.setItem('pe-settings-forcesave', '1')
+
     editor.value = new window.DocsAPI.DocEditor('iframe', {
         document: {
             title: fileName,
@@ -143,6 +151,9 @@ function createEditorInstance(config: {
                         change: false,
                     },
                 },
+                // LFOS owns persistence. Keep both toolbar and File-menu Save
+                // active so they use the same onSave path as the shortcut.
+                forcesave: true,
                 anonymous: {
                     request: false,
                     label: 'Guest',
@@ -151,6 +162,7 @@ function createEditorInstance(config: {
         },
         events: {
             onAppReady: () => {
+                applyLFOSFileMenuPolicy()
                 // 设置媒体资源
                 if (media) {
                     editor.value.sendCommand({
@@ -169,6 +181,7 @@ function createEditorInstance(config: {
                 console.log('Document loaded:', fileName)
             },
             onSave: handleSaveDocument,
+            onDownloadAs: handleExportDocument,
             // writeFile
             // todo writeFile 当外部粘贴图片时候处理
             writeFile: handleWriteFile,
@@ -227,39 +240,101 @@ function loadEditorApi(): Promise<void> {
 interface SaveEvent {
     data: {
         data: { data: Uint8Array }
-        option: { outputformat: number }
+        option: {
+            outputformat: number
+            actionType?: number
+        }
     }
 }
 
 async function handleSaveDocument(event: SaveEvent) {
     console.log('Save document event:', event)
-
-    if (event.data && event.data.data) {
+    if (saveInProgress) return
+    saveInProgress = true
+    let errorCode = 0
+    try {
+        if (!event.data?.data?.data) throw new Error('ONLYOFFICE did not provide document data')
         const { data, option } = event.data
         const outputFormat = c_oAscFileType2[option.outputformat] || 'DOCX'
-        const converted = await convertBinToDocument(
-            data.data,
-            props.file.fileName,
-            outputFormat,
-        )
-
+        const converted = await convertBinToDocument(data.data, props.file.fileName, outputFormat)
+        // The embedded editors also use onSave for Download As. actionType 6
+        // means an exported copy and must never replace the opened LFOS file.
+        const sourceFile = option.actionType === 6 ? null : props.file.file
         const lfosResult = await saveFileToLFOS(
             converted.data,
             converted.fileName,
             getDocumentMimeType(converted.fileName),
-            props.file.file,
+            sourceFile,
         )
 
         if (lfosResult === 'unavailable') {
             await saveDocumentToDevice(converted.data, converted.fileName)
+        } else if (lfosResult === 'cancelled') {
+            errorCode = 1
         }
+    } catch (error) {
+        errorCode = 1
+        console.error('Could not save the document:', error)
+    } finally {
+        saveInProgress = false
+        editor.value?.sendCommand({
+            command: 'asc_onSaveCallback',
+            data: { err_code: errorCode },
+        })
+    }
+}
+
+interface ExportEvent {
+    data?: {
+        url?: string
+        fileType?: string
+        title?: string
+    }
+}
+
+function fileNameForExport(fileType: string, title?: string): string {
+    const extension = fileType.trim().toLowerCase().replace(/^\./, '')
+    const sourceName = title?.trim() || props.file.fileName
+    const baseName = sourceName.replace(/\.[^.]+$/, '') || 'Document'
+    return extension ? `${baseName}.${extension}` : sourceName
+}
+
+async function handleExportDocument(event: ExportEvent) {
+    const exportUrl = event.data?.url
+    const fileType = event.data?.fileType
+    if (!exportUrl || !fileType) {
+        console.error('ONLYOFFICE did not provide an export URL or file type', event)
+        return
     }
 
-    // 告知编辑器保存完成
-    editor.value.sendCommand({
-        command: 'asc_onSaveCallback',
-        data: { err_code: 0 },
-    })
+    try {
+        const response = await fetch(new URL(exportUrl, window.location.href))
+        if (!response.ok) throw new Error(`Export request failed with ${response.status}`)
+        const bytes = new Uint8Array(await response.arrayBuffer())
+        const fileName = fileNameForExport(fileType, event.data?.title)
+        const lfosResult = await saveFileToLFOS(
+            bytes,
+            fileName,
+            getDocumentMimeType(fileName),
+            null,
+        )
+        if (lfosResult === 'unavailable') {
+            await saveDocumentToDevice(bytes, fileName)
+        }
+    } catch (error) {
+        console.error('Could not export the document:', error)
+    }
+}
+
+function applyLFOSFileMenuPolicy() {
+    const editorFrame = document.querySelector<HTMLIFrameElement>('.editor-container > iframe')
+    const editorDocument = editorFrame?.contentDocument
+    if (!editorDocument || editorDocument.getElementById('lfos-file-menu-policy')) return
+
+    const style = editorDocument.createElement('style')
+    style.id = 'lfos-file-menu-policy'
+    style.textContent = '#fm-btn-download-online { display: none !important; }'
+    editorDocument.head.appendChild(style)
 }
 
 /**

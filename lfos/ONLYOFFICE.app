@@ -8,7 +8,7 @@
   "defaultZoom": 100,
   "rememberWindowBounds": true,
   "windowChrome": {
-    "mode": "overlay",
+    "mode": "titlebar",
     "background": "surface"
   },
   "permissions": ["files:open", "files:save"],
