@@ -18,7 +18,7 @@ import {
     saveDocumentToDevice,
     c_oAscFileType2,
 } from '@/utils/x2t'
-import { saveFileToLFOS } from '@/services/lfos'
+import { saveFileToLFOS, setLFOSUnsavedChanges } from '@/services/lfos'
 const X2T = ref(null)
 // 设置prop
 const props = defineProps<{
@@ -30,6 +30,8 @@ const loading = ref(false)
 let stopFileWatch: (() => void) | null = null
 let documentObjectUrl: string | null = null
 let saveInProgress = false
+let documentDirty = false
+let dirtiedDuringSave = false
 
 // 全局 media 映射对象
 const media: { [key: string]: string } = {}
@@ -180,6 +182,7 @@ function createEditorInstance(config: {
             onDocumentReady: () => {
                 console.log('Document loaded:', fileName)
             },
+            onDocumentStateChange: handleDocumentStateChange,
             onSave: handleSaveDocument,
             onDownloadAs: handleExportDocument,
             // writeFile
@@ -247,10 +250,24 @@ interface SaveEvent {
     }
 }
 
+function reportUnsavedChanges() {
+    void setLFOSUnsavedChanges(documentDirty || saveInProgress).catch((error) => {
+        console.warn('Could not report the document state to LFOS:', error)
+    })
+}
+
+function handleDocumentStateChange(event: { data?: boolean }) {
+    documentDirty = Boolean(event.data)
+    if (saveInProgress && documentDirty) dirtiedDuringSave = true
+    reportUnsavedChanges()
+}
+
 async function handleSaveDocument(event: SaveEvent) {
     console.log('Save document event:', event)
     if (saveInProgress) return
     saveInProgress = true
+    dirtiedDuringSave = false
+    reportUnsavedChanges()
     let errorCode = 0
     try {
         if (!event.data?.data?.data) throw new Error('ONLYOFFICE did not provide document data')
@@ -277,6 +294,8 @@ async function handleSaveDocument(event: SaveEvent) {
         console.error('Could not save the document:', error)
     } finally {
         saveInProgress = false
+        documentDirty = errorCode !== 0 || dirtiedDuringSave
+        reportUnsavedChanges()
         editor.value?.sendCommand({
             command: 'asc_onSaveCallback',
             data: { err_code: errorCode },

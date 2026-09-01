@@ -27,6 +27,9 @@ interface LFOSApi {
   activation: {
     getInitial(): Promise<{ type: 'open-file'; file: LFOSFileHandle } | null>
   }
+  lifecycle: {
+    setUnsavedChanges(dirty: boolean): Promise<null>
+  }
   files: {
     open(options?: {
       title?: string
@@ -94,6 +97,12 @@ async function connect(): Promise<LFOSApi | null> {
 export function getLFOS(): Promise<LFOSApi | null> {
   connectionPromise ??= connect()
   return connectionPromise
+}
+
+export async function setLFOSUnsavedChanges(dirty: boolean): Promise<void> {
+  const lfos = await getLFOS()
+  if (!lfos || !lfos.capabilities.has('lifecycle.setUnsavedChanges')) return
+  await lfos.lifecycle.setUnsavedChanges(dirty)
 }
 
 async function fileFromHandle(lfos: LFOSApi, handle: LFOSFileHandle): Promise<File> {
