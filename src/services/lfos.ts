@@ -122,7 +122,7 @@ async function fileFromHandle(lfos: LFOSApi, handle: LFOSFileHandle): Promise<Fi
 
 export async function getInitialLFOSFile(): Promise<File | null> {
   const lfos = await getLFOS()
-  if (!lfos || !lfos.capabilities.has('activation.openFile')) return null
+  if (!lfos || !lfos.capabilities.has('activation.getInitial')) return null
 
   const activation = await lfos.activation.getInitial()
   if (activation?.type !== 'open-file') return null
