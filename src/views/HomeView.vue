@@ -8,7 +8,6 @@
         v-if="docmentObj?.fileName"
         style="height: 100%; width: 100%"
         :file="docmentObj"
-        ref="documentHandler"
       />
       <div class="main-content" v-else>
         <h1>ONLYOFFICE for LFOS</h1>
@@ -61,7 +60,6 @@ import { ElLoading, ElMessage } from 'element-plus'
 import { getInitialLFOSFile, openFileFromLFOS } from '@/services/lfos'
 
 const showCreateDialog = ref(false)
-const documentHandler = ref<InstanceType<typeof DocumentHandler> | null>(null)
 const docmentObj = ref<DocmentType | null>(null)
 const isOpening = ref(false)
 const route = useRoute()

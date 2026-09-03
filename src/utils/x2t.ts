@@ -3,6 +3,7 @@ interface EmscriptenFileSystem {
     mkdir(path: string): void
     readdir(path: string): string[]
     readFile(path: string, options?: { encoding: 'binary' }): Uint8Array
+    unlink(path: string): void
     writeFile(path: string, data: Uint8Array | string): void
 }
 
@@ -52,6 +53,7 @@ class X2TConverter {
     private x2tModule: EmscriptenModule | null = null
     private isReady = false
     private initPromise: Promise<EmscriptenModule> | null = null
+    private scriptPromise: Promise<void> | null = null
     private hasScriptLoaded = false
 
     // 支持的文件类型映射
@@ -84,8 +86,9 @@ class X2TConverter {
      */
     async loadScript(): Promise<void> {
         if (this.hasScriptLoaded) return
+        if (this.scriptPromise) return this.scriptPromise
 
-        return new Promise((resolve, reject) => {
+        this.scriptPromise = new Promise((resolve, reject) => {
             const script = document.createElement('script')
             script.src = this.SCRIPT_PATH
             script.onload = () => {
@@ -97,11 +100,13 @@ class X2TConverter {
             script.onerror = (error) => {
                 const errorMsg = 'Failed to load X2T WASM script'
                 console.error(errorMsg, error)
+                this.scriptPromise = null
                 reject(new Error(errorMsg))
             }
 
             document.head.appendChild(script)
         })
+        return this.scriptPromise
     }
 
     /**
@@ -126,7 +131,7 @@ class X2TConverter {
             // 确保脚本已加载
             await this.loadScript()
 
-            return new Promise((resolve, reject) => {
+            return await new Promise((resolve, reject) => {
                 const x2t = window.Module
                 if (!x2t) {
                     reject(new Error('X2T module not found after script loading'))
@@ -276,6 +281,28 @@ class X2TConverter {
         return media
     }
 
+    private clearMediaDirectory(): void {
+        if (!this.x2tModule) return
+
+        try {
+            for (const file of this.x2tModule.FS.readdir('/working/media/')) {
+                if (file !== '.' && file !== '..') {
+                    this.safeUnlink(`/working/media/${file}`)
+                }
+            }
+        } catch {
+            // The converter may not have created the media directory yet.
+        }
+    }
+
+    private safeUnlink(path: string): void {
+        try {
+            this.x2tModule?.FS.unlink(path)
+        } catch {
+            // Missing temporary files need no cleanup.
+        }
+    }
+
     /**
      * 将文档转换为 bin 格式
      */
@@ -285,16 +312,15 @@ class X2TConverter {
         const fileName = file.name
         const fileExt = fileName.split('.').pop()?.toLowerCase() || ''
         const documentType = this.getDocumentType(fileExt)
+        const sanitizedName = this.sanitizeFileName(fileName)
+        const inputPath = `/working/${sanitizedName}`
+        const outputPath = `${inputPath}.bin`
 
         try {
+            this.clearMediaDirectory()
             // 读取文件内容
             const arrayBuffer = await file.arrayBuffer()
             const data = new Uint8Array(arrayBuffer)
-
-            // 生成安全的文件名
-            const sanitizedName = this.sanitizeFileName(fileName)
-            const inputPath = `/working/${sanitizedName}`
-            const outputPath = `${inputPath}.bin`
 
             // 写入文件到虚拟文件系统
             this.x2tModule!.FS.writeFile(inputPath, data)
@@ -320,6 +346,11 @@ class X2TConverter {
             throw new Error(
                 `Document conversion failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
             )
+        } finally {
+            this.safeUnlink(inputPath)
+            this.safeUnlink(outputPath)
+            this.safeUnlink('/working/params.xml')
+            this.clearMediaDirectory()
         }
     }
 
@@ -334,10 +365,12 @@ class X2TConverter {
         const sanitizedBase = this.sanitizeFileName(originalFileName).replace(/\.[^/.]+$/, '')
         const binFileName = `${sanitizedBase}.bin`
         const outputFileName = `${sanitizedBase}.${targetExt.toLowerCase()}`
+        const inputPath = `/working/${binFileName}`
+        const outputPath = `/working/${outputFileName}`
 
         try {
             // 写入 bin 文件
-            this.x2tModule!.FS.writeFile(`/working/${binFileName}`, bin)
+            this.x2tModule!.FS.writeFile(inputPath, bin)
 
             // 创建转换参数
             let additionalParams = ''
@@ -345,11 +378,7 @@ class X2TConverter {
                 additionalParams = '<m_sFontDir>/working/fonts/</m_sFontDir>'
             }
 
-            const params = this.createConversionParams(
-                `/working/${binFileName}`,
-                `/working/${outputFileName}`,
-                additionalParams,
-            )
+            const params = this.createConversionParams(inputPath, outputPath, additionalParams)
 
             this.x2tModule!.FS.writeFile('/working/params.xml', params)
 
@@ -357,7 +386,7 @@ class X2TConverter {
             this.executeConversion('/working/params.xml')
 
             // 读取生成的文档
-            const result = this.x2tModule!.FS.readFile(`/working/${outputFileName}`)
+            const result = this.x2tModule!.FS.readFile(outputPath)
 
             return {
                 fileName: outputFileName,
@@ -367,6 +396,10 @@ class X2TConverter {
             throw new Error(
                 `Bin to document conversion failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
             )
+        } finally {
+            this.safeUnlink(inputPath)
+            this.safeUnlink(outputPath)
+            this.safeUnlink('/working/params.xml')
         }
     }
 
@@ -532,11 +565,8 @@ const x2tConverter = new X2TConverter()
 export const initX2TScript = () => x2tConverter.loadScript()
 export const initX2T = () => x2tConverter.initialize()
 export const convertDocument = (file: File) => x2tConverter.convertDocument(file)
-export const convertBinToDocument = (
-    bin: Uint8Array,
-    fileName: string,
-    targetExt?: string,
-) => x2tConverter.convertBinToDocument(bin, fileName, targetExt)
+export const convertBinToDocument = (bin: Uint8Array, fileName: string, targetExt?: string) =>
+    x2tConverter.convertBinToDocument(bin, fileName, targetExt)
 export const convertBinToDocumentAndDownload = (
     bin: Uint8Array,
     fileName: string,

@@ -2,7 +2,6 @@ import { fileURLToPath, URL } from 'node:url'
 
 import { defineConfig, loadEnv } from 'vite'
 import vue from '@vitejs/plugin-vue'
-import vueJsx from '@vitejs/plugin-vue-jsx'
 import vueDevTools from 'vite-plugin-vue-devtools'
 import AutoImport from 'unplugin-auto-import/vite'
 import Components from 'unplugin-vue-components/vite'
@@ -29,8 +28,7 @@ export default defineConfig(({ mode }) => {
           resolvers: [ElementPlusResolver()],
         }),
         vue(),
-        vueJsx(),
-        vueDevTools(),
+        mode === 'development' && vueDevTools(),
         viteCompression({
           filter: /\.(js|css|json|txt|ico|svg|wasm)(\?.*)?$/i, // 需要压缩的文件
           threshold: 1024, // 文件容量大于这个值进行压缩
@@ -38,7 +36,7 @@ export default defineConfig(({ mode }) => {
           ext: 'gz', // 后缀名
           deleteOriginFile: false, // 压缩后是否删除压缩源文件
         }),
-      ],
+      ].filter(Boolean),
       resolve: {
         alias: {
           '@': fileURLToPath(new URL('./src', import.meta.url)),

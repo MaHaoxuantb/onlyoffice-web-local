@@ -10,7 +10,6 @@ import { getDocumentType, DocmentType } from '@/utils/util'
 import { g_sEmpty_bin } from '@/utils/empty_bin'
 // @ts-ignore
 import {
-    initX2TScript,
     initX2T,
     convertDocument,
     convertBinToDocument,
@@ -19,7 +18,6 @@ import {
     c_oAscFileType2,
 } from '@/utils/x2t'
 import { saveFileToLFOS, setLFOSUnsavedChanges } from '@/services/lfos'
-const X2T = ref(null)
 // 设置prop
 const props = defineProps<{
     file: DocmentType
@@ -32,17 +30,20 @@ let documentObjectUrl: string | null = null
 let saveInProgress = false
 let documentDirty = false
 let dirtiedDuringSave = false
+let lastReportedUnsavedChanges: boolean | null = null
+let pendingUnsavedChanges: boolean | null = null
+let unsavedChangesReport: Promise<void> | null = null
 
-// 全局 media 映射对象
-const media: { [key: string]: string } = {}
+const activeMedia: Record<string, string> = {}
 
 onMounted(async () => {
     loading.value = true
     try {
-        await initX2TScript()
-        // 加载编辑器API
-        await loadEditorApi()
-        await initX2T()
+        // Existing documents need conversion before opening, so initialize the
+        // converter in parallel with the editor API. Blank templates do not
+        // need the 57 MB WASM module until their first save.
+        const converterPromise = props.file.file ? initX2T() : Promise.resolve()
+        await Promise.all([loadEditorApi(), converterPromise])
         console.log('app has loading')
         loading.value = false
         // 页面初始化后，使用 watchEffect 监听 props.file 并执行 openFile
@@ -55,7 +56,9 @@ onMounted(async () => {
                     await openFile()
                 } catch (error) {
                     console.error('Error opening file:', error)
-                    alert('The file could not be opened. Please check that its format is supported.')
+                    alert(
+                        'The file could not be opened. Please check that its format is supported.',
+                    )
                 }
             },
             { immediate: true }, // 立即执行一次以处理初始值
@@ -120,7 +123,9 @@ function createEditorInstance(config: {
         editor.value = null
     }
 
-    const { fileName, fileType, binData, media, sourceFile } = config
+    clearMediaUrls()
+    const { fileName, fileType, binData, media: documentMedia, sourceFile } = config
+    Object.assign(activeMedia, documentMedia)
     if (documentObjectUrl) URL.revokeObjectURL(documentObjectUrl)
     documentObjectUrl = URL.createObjectURL(sourceFile ?? new Blob([]))
 
@@ -166,10 +171,10 @@ function createEditorInstance(config: {
             onAppReady: () => {
                 applyLFOSFileMenuPolicy()
                 // 设置媒体资源
-                if (media) {
+                if (documentMedia) {
                     editor.value.sendCommand({
                         command: 'asc_setImageUrls',
-                        data: { urls: media },
+                        data: { urls: activeMedia },
                     })
                 }
 
@@ -217,6 +222,7 @@ onBeforeUnmount(() => {
         URL.revokeObjectURL(documentObjectUrl)
         documentObjectUrl = null
     }
+    clearMediaUrls()
 })
 
 function loadEditorApi(): Promise<void> {
@@ -251,9 +257,33 @@ interface SaveEvent {
 }
 
 function reportUnsavedChanges() {
-    void setLFOSUnsavedChanges(documentDirty || saveInProgress).catch((error) => {
-        console.warn('Could not report the document state to LFOS:', error)
-    })
+    const nextValue = documentDirty || saveInProgress
+    if (nextValue === lastReportedUnsavedChanges && pendingUnsavedChanges === null) return
+
+    pendingUnsavedChanges = nextValue
+    if (unsavedChangesReport) return
+
+    unsavedChangesReport = flushUnsavedChanges()
+}
+
+async function flushUnsavedChanges(): Promise<void> {
+    try {
+        while (pendingUnsavedChanges !== null) {
+            const value = pendingUnsavedChanges
+            pendingUnsavedChanges = null
+            if (value === lastReportedUnsavedChanges) continue
+
+            try {
+                await setLFOSUnsavedChanges(value)
+                lastReportedUnsavedChanges = value
+            } catch (error) {
+                console.warn('Could not report the document state to LFOS:', error)
+            }
+        }
+    } finally {
+        unsavedChangesReport = null
+        if (pendingUnsavedChanges !== null) reportUnsavedChanges()
+    }
 }
 
 function handleDocumentStateChange(event: { data?: boolean }) {
@@ -397,11 +427,14 @@ function handleWriteFile(event: any) {
         // 将图片设置为base64url
         //  const base64Url = `data:${mimeType};base64,${btoa(String.fromCharCode(...imageData))}`;
         // 将图片URL添加到媒体映射中，使用原始文件名作为key
-        media[`media/${fileName}`] = objectUrl
+        const mediaPath = `media/${fileName}`
+        const previousUrl = activeMedia[mediaPath]
+        if (previousUrl?.startsWith('blob:')) URL.revokeObjectURL(previousUrl)
+        activeMedia[mediaPath] = objectUrl
         editor.value.sendCommand({
             command: 'asc_setImageUrls',
             data: {
-                urls: media,
+                urls: activeMedia,
             },
         })
 
@@ -413,7 +446,7 @@ function handleWriteFile(event: any) {
                 imgName: fileName,
             },
         })
-        console.log(`Successfully processed image: ${fileName}, URL: ${media}`)
+        console.log(`Successfully processed image: ${fileName}`)
     } catch (error) {
         const message = error instanceof Error ? error.message : 'Unknown error'
         console.error('Error handling writeFile:', error)
@@ -460,22 +493,14 @@ function getMimeTypeFromExtension(extension: string): string {
     return mimeMap[extension?.toLowerCase()] || 'image/png'
 }
 
-// 组件卸载时清理对象 URL
-onBeforeUnmount(() => {
-    // 清理媒体资源的对象 URL
-    Object.values(media).forEach((url) => {
+function clearMediaUrls() {
+    Object.values(activeMedia).forEach((url) => {
         if (typeof url === 'string' && url.startsWith('blob:')) {
             URL.revokeObjectURL(url)
         }
     })
-
-    // 清理编辑器资源
-    if (editor.value) {
-        if (typeof editor.value.destroyEditor === 'function') {
-            editor.value.destroyEditor()
-        }
-    }
-})
+    Object.keys(activeMedia).forEach((key) => delete activeMedia[key])
+}
 </script>
 
 <style scoped>
