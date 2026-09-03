@@ -240,6 +240,11 @@
     <div class="inlined-svg"></div>
 
     <script src="../../../vendor/requirejs/require.js"></script>
+    <script>
+        // Large editor modules can legitimately take longer than RequireJS's
+        // seven-second default on a cold cache or constrained connection.
+        require.config({ waitSeconds: 60 });
+    </script>
     <script src="english-locale.js"></script>
     <script src="app.js"></script>
 
