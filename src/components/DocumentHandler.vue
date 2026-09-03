@@ -10,6 +10,7 @@ import { getDocumentType, DocmentType } from '@/utils/util'
 import { g_sEmpty_bin } from '@/utils/empty_bin'
 // @ts-ignore
 import {
+    initX2TScript,
     initX2T,
     convertDocument,
     convertBinToDocument,
@@ -39,11 +40,16 @@ const activeMedia: Record<string, string> = {}
 onMounted(async () => {
     loading.value = true
     try {
-        // Existing documents need conversion before opening, so initialize the
-        // converter in parallel with the editor API. Blank templates do not
-        // need the 57 MB WASM module until their first save.
-        const converterPromise = props.file.file ? initX2T() : Promise.resolve()
-        await Promise.all([loadEditorApi(), converterPromise])
+        if (props.file.file) {
+            // Preserve the proven initialization order for converted files.
+            // The script starts fetching WASM before the editor API loads.
+            await initX2TScript()
+            await loadEditorApi()
+            await initX2T()
+        } else {
+            // Blank templates do not need the 57 MB converter until first save.
+            await loadEditorApi()
+        }
         console.log('app has loading')
         loading.value = false
         // 页面初始化后，使用 watchEffect 监听 props.file 并执行 openFile

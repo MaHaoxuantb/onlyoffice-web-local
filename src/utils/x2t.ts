@@ -3,7 +3,6 @@ interface EmscriptenFileSystem {
     mkdir(path: string): void
     readdir(path: string): string[]
     readFile(path: string, options?: { encoding: 'binary' }): Uint8Array
-    unlink(path: string): void
     writeFile(path: string, data: Uint8Array | string): void
 }
 
@@ -281,28 +280,6 @@ class X2TConverter {
         return media
     }
 
-    private clearMediaDirectory(): void {
-        if (!this.x2tModule) return
-
-        try {
-            for (const file of this.x2tModule.FS.readdir('/working/media/')) {
-                if (file !== '.' && file !== '..') {
-                    this.safeUnlink(`/working/media/${file}`)
-                }
-            }
-        } catch {
-            // The converter may not have created the media directory yet.
-        }
-    }
-
-    private safeUnlink(path: string): void {
-        try {
-            this.x2tModule?.FS.unlink(path)
-        } catch {
-            // Missing temporary files need no cleanup.
-        }
-    }
-
     /**
      * 将文档转换为 bin 格式
      */
@@ -312,15 +289,16 @@ class X2TConverter {
         const fileName = file.name
         const fileExt = fileName.split('.').pop()?.toLowerCase() || ''
         const documentType = this.getDocumentType(fileExt)
-        const sanitizedName = this.sanitizeFileName(fileName)
-        const inputPath = `/working/${sanitizedName}`
-        const outputPath = `${inputPath}.bin`
 
         try {
-            this.clearMediaDirectory()
             // 读取文件内容
             const arrayBuffer = await file.arrayBuffer()
             const data = new Uint8Array(arrayBuffer)
+
+            // 生成安全的文件名
+            const sanitizedName = this.sanitizeFileName(fileName)
+            const inputPath = `/working/${sanitizedName}`
+            const outputPath = `${inputPath}.bin`
 
             // 写入文件到虚拟文件系统
             this.x2tModule!.FS.writeFile(inputPath, data)
@@ -346,11 +324,6 @@ class X2TConverter {
             throw new Error(
                 `Document conversion failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
             )
-        } finally {
-            this.safeUnlink(inputPath)
-            this.safeUnlink(outputPath)
-            this.safeUnlink('/working/params.xml')
-            this.clearMediaDirectory()
         }
     }
 
@@ -365,12 +338,10 @@ class X2TConverter {
         const sanitizedBase = this.sanitizeFileName(originalFileName).replace(/\.[^/.]+$/, '')
         const binFileName = `${sanitizedBase}.bin`
         const outputFileName = `${sanitizedBase}.${targetExt.toLowerCase()}`
-        const inputPath = `/working/${binFileName}`
-        const outputPath = `/working/${outputFileName}`
 
         try {
             // 写入 bin 文件
-            this.x2tModule!.FS.writeFile(inputPath, bin)
+            this.x2tModule!.FS.writeFile(`/working/${binFileName}`, bin)
 
             // 创建转换参数
             let additionalParams = ''
@@ -378,7 +349,11 @@ class X2TConverter {
                 additionalParams = '<m_sFontDir>/working/fonts/</m_sFontDir>'
             }
 
-            const params = this.createConversionParams(inputPath, outputPath, additionalParams)
+            const params = this.createConversionParams(
+                `/working/${binFileName}`,
+                `/working/${outputFileName}`,
+                additionalParams,
+            )
 
             this.x2tModule!.FS.writeFile('/working/params.xml', params)
 
@@ -386,7 +361,7 @@ class X2TConverter {
             this.executeConversion('/working/params.xml')
 
             // 读取生成的文档
-            const result = this.x2tModule!.FS.readFile(outputPath)
+            const result = this.x2tModule!.FS.readFile(`/working/${outputFileName}`)
 
             return {
                 fileName: outputFileName,
@@ -396,10 +371,6 @@ class X2TConverter {
             throw new Error(
                 `Bin to document conversion failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
             )
-        } finally {
-            this.safeUnlink(inputPath)
-            this.safeUnlink(outputPath)
-            this.safeUnlink('/working/params.xml')
         }
     }
 
