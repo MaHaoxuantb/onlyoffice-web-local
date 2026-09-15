@@ -56,7 +56,8 @@ import { onMounted, ref } from 'vue'
 import { DocmentType } from '@/utils/util'
 import DocumentHandler from '../components/DocumentHandler.vue'
 import { useRoute } from 'vue-router'
-import { ElLoading, ElMessage } from 'element-plus'
+import { ElLoading } from 'element-plus'
+import { showAppMessage } from '@/services/feedback'
 import { getInitialLFOSFile, openFileFromLFOS } from '@/services/lfos'
 
 const showCreateDialog = ref(false)
@@ -89,7 +90,7 @@ const onOpenDocument = async () => {
     openWithBrowserPicker()
   } catch (error) {
     console.error('Could not open the file:', error)
-    ElMessage.error('The file could not be opened. Please try again.')
+    void showAppMessage('The file could not be opened. Please try again.')
   } finally {
     isOpening.value = false
   }
@@ -162,7 +163,7 @@ async function initFileUrl() {
     showCreateDialog.value = false
   } catch (err) {
     console.error('Could not load the remote file:', err)
-    ElMessage.error('The remote file could not be loaded.')
+    void showAppMessage('The remote file could not be loaded.')
   } finally {
     laodingInstance.close()
   }
@@ -176,7 +177,7 @@ onMounted(async () => {
     }
   } catch (error) {
     console.error('Could not open the LFOS activation file:', error)
-    ElMessage.error('The LFOS file could not be opened.')
+    void showAppMessage('The LFOS file could not be opened.')
   }
 
   await initFileUrl()

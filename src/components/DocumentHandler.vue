@@ -19,6 +19,7 @@ import {
     c_oAscFileType2,
 } from '@/utils/x2t'
 import { saveFileToLFOS, setLFOSUnsavedChanges } from '@/services/lfos'
+import { showAppMessage } from '@/services/feedback'
 // 设置prop
 const props = defineProps<{
     file: DocmentType
@@ -34,6 +35,7 @@ let dirtiedDuringSave = false
 let lastReportedUnsavedChanges: boolean | null = null
 let pendingUnsavedChanges: boolean | null = null
 let unsavedChangesReport: Promise<void> | null = null
+let editorShortcutWindow: Window | null = null
 
 const activeMedia: Record<string, string> = {}
 
@@ -62,9 +64,7 @@ onMounted(async () => {
                     await openFile()
                 } catch (error) {
                     console.error('Error opening file:', error)
-                    alert(
-                        'The file could not be opened. Please check that its format is supported.',
-                    )
+                    // The operation already reported the failure.
                 }
             },
             { immediate: true }, // 立即执行一次以处理初始值
@@ -110,7 +110,7 @@ async function handleDocumentOperation(options: { isNew: boolean; fileName: stri
         })
     } catch (error: any) {
         console.error('Document operation failed:', error)
-        alert(`Document operation failed: ${error.message}`)
+        void showAppMessage('The document operation failed. Please check the file format.')
         throw error
     }
 }
@@ -176,6 +176,7 @@ function createEditorInstance(config: {
         events: {
             onAppReady: () => {
                 applyLFOSFileMenuPolicy()
+                installEditorSaveShortcut()
                 // 设置媒体资源
                 if (documentMedia) {
                     editor.value.sendCommand({
@@ -215,6 +216,9 @@ async function openFile() {
 }
 
 onBeforeUnmount(() => {
+    window.removeEventListener('keydown', handleSaveShortcut, true)
+    editorShortcutWindow?.removeEventListener('keydown', handleSaveShortcut, true)
+    editorShortcutWindow = null
     stopFileWatch?.()
     stopFileWatch = null
     // 清理资源
@@ -231,6 +235,28 @@ onBeforeUnmount(() => {
     clearMediaUrls()
 })
 
+function handleSaveShortcut(event: KeyboardEvent) {
+    if (!(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey ||
+        event.key.toLowerCase() !== 's' || !editor.value) return
+
+    const editorWindow = document.querySelector<HTMLIFrameElement>('.editor-container > iframe')?.contentWindow as
+        (Window & { on_native_message?: (command: string, data: string) => void }) | null
+    if (!editorWindow?.on_native_message) return
+    event.preventDefault()
+    event.stopImmediatePropagation()
+    if (saveInProgress) return
+    // This is the same editor action used by the File menu and Save toolbar button.
+    editorWindow.on_native_message('file:save', '')
+}
+
+function installEditorSaveShortcut() {
+    window.removeEventListener('keydown', handleSaveShortcut, true)
+    editorShortcutWindow?.removeEventListener('keydown', handleSaveShortcut, true)
+    window.addEventListener('keydown', handleSaveShortcut, true)
+    editorShortcutWindow = document.querySelector<HTMLIFrameElement>('.editor-container > iframe')?.contentWindow ?? null
+    editorShortcutWindow?.addEventListener('keydown', handleSaveShortcut, true)
+}
+
 function loadEditorApi(): Promise<void> {
     return new Promise((resolve, reject) => {
         // 检查是否已加载
@@ -245,7 +271,7 @@ function loadEditorApi(): Promise<void> {
         script.onload = () => resolve()
         script.onerror = (error) => {
             console.error('Failed to load OnlyOffice API:', error)
-            alert('The ONLYOFFICE editor could not be loaded.')
+            void showAppMessage('The ONLYOFFICE editor could not be loaded.')
             reject(error)
         }
         document.head.appendChild(script)
@@ -325,9 +351,13 @@ async function handleSaveDocument(event: SaveEvent) {
         } else if (lfosResult === 'cancelled') {
             errorCode = 1
         }
+        if (errorCode === 0) {
+            void showAppMessage(option.actionType === 6 ? 'Document copy saved.' : 'Document saved.', 'success')
+        }
     } catch (error) {
         errorCode = 1
         console.error('Could not save the document:', error)
+        void showAppMessage('The document could not be saved. Please try again.')
     } finally {
         saveInProgress = false
         documentDirty = errorCode !== 0 || dirtiedDuringSave

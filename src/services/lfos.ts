@@ -24,6 +24,9 @@ interface LFOSApi {
   capabilities: {
     has(name: string): boolean
   }
+  feedback: {
+    show(options: { message: string }): Promise<null>
+  }
   activation: {
     getInitial(): Promise<{ type: 'open-file'; file: LFOSFileHandle } | null>
   }
@@ -97,6 +100,13 @@ async function connect(): Promise<LFOSApi | null> {
 export function getLFOS(): Promise<LFOSApi | null> {
   connectionPromise ??= connect()
   return connectionPromise
+}
+
+export async function showLFOSFeedback(message: string): Promise<boolean> {
+  const lfos = await getLFOS()
+  if (!lfos || !lfos.capabilities.has('feedback.show')) return false
+  await lfos.feedback.show({ message: message.trim().slice(0, 500) })
+  return true
 }
 
 export async function setLFOSUnsavedChanges(dirty: boolean): Promise<void> {
