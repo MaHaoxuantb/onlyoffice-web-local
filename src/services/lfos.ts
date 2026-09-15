@@ -92,7 +92,7 @@ async function connect(): Promise<LFOSApi | null> {
     const environment = await sdk.lfos.ready()
     return environment.name === 'LFOS' ? sdk.lfos : null
   } catch (error) {
-    console.info('LFOS is not available; using the browser file APIs.', error)
+    console.info('LFOS file selection is unavailable.', error)
     return null
   }
 }

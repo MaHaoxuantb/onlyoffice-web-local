@@ -15,7 +15,6 @@ import {
     convertDocument,
     convertBinToDocument,
     getDocumentMimeType,
-    saveDocumentToDevice,
     c_oAscFileType2,
 } from '@/utils/x2t'
 import { saveFileToLFOS, setLFOSUnsavedChanges } from '@/services/lfos'
@@ -347,7 +346,8 @@ async function handleSaveDocument(event: SaveEvent) {
         )
 
         if (lfosResult === 'unavailable') {
-            await saveDocumentToDevice(converted.data, converted.fileName)
+            errorCode = 1
+            void showAppMessage('LFOS file selection is unavailable. Open this app in LFOS.')
         } else if (lfosResult === 'cancelled') {
             errorCode = 1
         }
@@ -404,7 +404,7 @@ async function handleExportDocument(event: ExportEvent) {
             null,
         )
         if (lfosResult === 'unavailable') {
-            await saveDocumentToDevice(bytes, fileName)
+            void showAppMessage('LFOS file selection is unavailable. Open this app in LFOS.')
         }
     } catch (error) {
         console.error('Could not export the document:', error)

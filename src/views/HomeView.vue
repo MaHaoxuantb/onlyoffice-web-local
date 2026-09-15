@@ -87,32 +87,13 @@ const onOpenDocument = async () => {
     }
     if (lfosResult.status === 'cancelled') return
 
-    openWithBrowserPicker()
+    void showAppMessage('LFOS file selection is unavailable. Open this app in LFOS.')
   } catch (error) {
     console.error('Could not open the file:', error)
     void showAppMessage('The file could not be opened. Please try again.')
   } finally {
     isOpening.value = false
   }
-}
-
-const openWithBrowserPicker = () => {
-  const input = document.createElement('input')
-  input.type = 'file'
-  input.accept = '.docx,.xlsx,.pptx,.doc,.xls,.ppt'
-
-  input.onchange = (event) => {
-    const file = (event.target as HTMLInputElement).files?.[0]
-    if (file) {
-      showCreateDialog.value = false
-      docmentObj.value = {
-        fileName: file.name,
-        file: file,
-      }
-    }
-  }
-
-  input.click()
 }
 
 async function initFileUrl() {
