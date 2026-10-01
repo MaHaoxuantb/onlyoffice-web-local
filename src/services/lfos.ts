@@ -1,3 +1,5 @@
+import type { WindowChromeAPI } from './window-chrome'
+
 const LFOS_SDK_URL =
   import.meta.env.VITE_LFOS_SDK_URL ||
   (import.meta.env.DEV
@@ -19,6 +21,7 @@ interface LFOSEnvironment {
 }
 
 interface LFOSApi {
+  windowChrome: WindowChromeAPI
   isAvailable(): boolean
   ready(): Promise<LFOSEnvironment>
   capabilities: {
@@ -66,7 +69,7 @@ export type LFOSOpenResult =
 export type LFOSSaveResult = 'saved' | 'cancelled' | 'unavailable'
 
 let connectionPromise: Promise<LFOSApi | null> | null = null
-const sourceHandles = new WeakMap<File, LFOSFileHandle>()
+const sourceHandles = new WeakMap<object, LFOSFileHandle>()
 
 function mimeTypeFromFileName(fileName: string): string {
   const extension = fileName.split('.').pop()?.toLowerCase()
@@ -169,13 +172,14 @@ export async function saveFileToLFOS(
   data: Uint8Array,
   fileName: string,
   mimeType: string,
-  sourceFile?: File | null,
+  sourceFile?: object | null,
 ): Promise<LFOSSaveResult> {
   const lfos = await getLFOS()
   if (!lfos || !lfos.capabilities.has('files.save')) return 'unavailable'
 
   const sourceHandle = sourceFile ? sourceHandles.get(sourceFile) : undefined
-  if (sourceFile && sourceHandle) {
+  const extensionOf = (name: string) => name.split('.').pop()?.toLowerCase()
+  if (sourceFile && sourceHandle && extensionOf(sourceHandle.name) === extensionOf(fileName)) {
     const updated = await lfos.files.write(sourceHandle, data)
     sourceHandles.set(sourceFile, updated)
     return 'saved'
@@ -191,11 +195,26 @@ export async function saveFileToLFOS(
 
   if (!handle) return 'cancelled'
 
+  let retained = false
   try {
     const updated = await lfos.files.write(handle, data)
-    if (sourceFile) sourceHandles.set(sourceFile, updated)
+    if (sourceFile) {
+      sourceHandles.set(sourceFile, updated)
+      retained = true
+      if (sourceHandle) {
+        await lfos.files.release(sourceHandle).catch(error => console.warn('Could not release previous file handle:', error))
+      }
+    }
     return 'saved'
   } finally {
-    if (!sourceFile) await lfos.files.release(handle)
+    if (!retained) {
+      await lfos.files.release(handle).catch(error => console.warn('Could not release save handle:', error))
+    }
   }
+}
+
+export async function releaseLFOSFile(source: object): Promise<void> {
+  const handle = sourceHandles.get(source)
+  sourceHandles.delete(source)
+  if (handle) await (await getLFOS())?.files.release(handle)
 }

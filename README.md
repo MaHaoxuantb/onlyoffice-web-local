@@ -116,7 +116,7 @@ LFOS currently consumes an editable `.app` JSON file in `/Applications`; it does
 2. In Finder, right-click the new `.app` file and choose **Edit Configuration**.
 3. Copy the deployed `https://YOUR-DEPLOYMENT/ONLYOFFICE.app` configuration into it. You can also start from `lfos/ONLYOFFICE.app` and replace `YOUR-PROJECT`.
 
-Keep `windowChrome.mode` set to `titlebar`. ONLYOFFICE places document controls, including Save, at the top-left of its interface; overlay chrome can cover those controls with LFOS window buttons.
+Set `windowChrome.mode` to `overlay`. The LFOS SDK keeps a system title bar until the editor adapter has reserved room for window controls in ONLYOFFICE’s native title/action row. Save, Print, Download, Undo, and Redo remain native editor actions. Narrow windows and unavailable SDK integrations retain the safe system title bar. Standalone browser use keeps the normal editor header.
 
 The configuration declares `files:open` and `files:save`, plus these Microsoft Office associations: `.doc`, `.docx`, `.xls`, `.xlsx`, `.ppt`, and `.pptx`. They are deliberately not marked as the default so the built-in LFOS Office handler is not silently replaced; users can choose ONLYOFFICE from **Open with…**. Change `default` to `true` only if this app should become the preferred handler.
 
@@ -149,3 +149,13 @@ After executing the above commands, open http://localhost:8080 in a browser to p
 
 - [Qihoo360/se-office: A full-featured office productivity suite based on open standards, enabling browser-based preview and editing of Office files.](https://github.com/Qihoo360/se-office)
 - [cryptpad/onlyoffice-x2t-wasm: CryptPad WebAssembly file conversion tool](https://github.com/cryptpad/onlyoffice-x2t-wasm)
+
+## Shared-header regression checks
+
+Run `npm run test:unit` and `npm run type-check`. With the LFOS SDK served at
+`http://127.0.0.1:3000/sdk/v1/lfos.js` and this app's dev server running, open
+`/tests/fixtures/window-chrome-host.html` on the app server. Create a Document,
+Spreadsheet, or Presentation and use the Wide, Narrow, zoom, and reset controls.
+The fixture has no file storage; use LunOS for persistence checks. Check native
+header actions and ribbon tabs, drag empty header areas, and confirm that narrow
+windows use the system title bar. Standalone `/` should keep the normal header.

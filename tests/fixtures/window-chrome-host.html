@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>ONLYOFFICE shared-header test host</title>
+<style>
+body { margin: 0; background: #141618; color: white; font: 14px system-ui; }
+.controls { display:flex; gap:8px; padding:8px; }
+button { cursor:pointer; }
+.window { position:relative; margin:10px; height:calc(100vh - 70px); border:1px solid #555; border-radius:16px; overflow:hidden; }
+.titlebar { height:48px; display:flex; justify-content:center; align-items:center; background:#202224; }
+.window.integrated .titlebar { display:none; }
+.system-controls { position:absolute; top:16px; left:14px; z-index:3; display:flex; gap:8px; }
+.system-controls button { border:0; border-radius:50%; width:16px; height:16px; background:#aaa; }
+.system-controls button:first-child {background:#ba7c7c;}
+.system-menu {position:absolute; top:12px; right:12px; z-index:3; }
+iframe { border:0; width:100%; height:calc(100% - 48px); display:block; transform-origin:top left; }
+.integrated iframe {height:100%;}
+</style>
+<div class="controls">
+ <button id="wide">Wide</button><button id="narrow">Narrow</button>
+ <button id="zoom-in">Zoom 200%</button><button id="zoom-out">Zoom 50%</button><button id="zoom-normal">Zoom 100%</button>
+ <button id="reset">Reset integration</button><output id="status">titlebar</output>
+</div>
+<div class="window" id="window">
+ <div class="titlebar">ONLYOFFICE — loading or fallback</div>
+ <div class="system-controls"><button aria-label="Close test window"></button><button aria-label="Minimize test window"></button><button aria-label="Maximize test window"></button></div>
+ <button class="system-menu">•••</button>
+ <iframe title="ONLYOFFICE test app" src="/"></iframe>
+</div>
+<script type="module">
+const frame = document.querySelector('iframe'), container = document.querySelector('#window');
+let integrated = false, zoom = 100, drag = null;
+const geometry = () => ({ mode:integrated ? 'overlay':'titlebar', canIntegrate:true, headerHeight:4800/zoom, leadingInset:10800/zoom, trailingInset:6400/zoom });
+function publish() {
+ container.classList.toggle('integrated',integrated);
+ frame.style.width = `${10000/zoom}%`;
+ frame.style.height = `${(container.clientHeight - (integrated ? 0 : 48))*100/zoom}px`;
+ frame.style.transform = `scale(${zoom/100})`;
+ document.querySelector('#status').value = geometry().mode;
+ frame.contentWindow.postMessage({type:'lfos:window-chrome-changed', protocolVersion:1, geometry:geometry()},location.origin);
+}
+window.addEventListener('message', event => {
+ if (event.source !== frame.contentWindow || event.origin !== location.origin || event.data?.type !== 'lfos:request' || event.data.protocolVersion !== 1) return;
+ const {method,params,requestId} = event.data;
+ let result = null;
+ if (method === 'environment.getInfo') result = {name:'LFOS',protocolVersion:1,capabilities:['windowChrome.get','windowChrome.subscribe','windowChrome.setIntegrated','windowChrome.drag','lifecycle.setUnsavedChanges','feedback.show']};
+ else if (method === 'windowChrome.get') result = geometry();
+ else if (method === 'windowChrome.setIntegrated') { integrated = params.integrated; publish(); result = geometry(); }
+ else if (method === 'windowChrome.drag') {
+   if (params.phase === 'start') drag = {x:params.screenX,y:params.screenY};
+   if (params.phase === 'move' && drag) container.style.translate = `${params.screenX-drag.x}px ${params.screenY-drag.y}px`;
+   if (params.phase === 'end') drag = null;
+ } else if (!['lifecycle.setUnsavedChanges','feedback.show'].includes(method)) {
+   frame.contentWindow.postMessage({type:'lfos:response',protocolVersion:1,requestId,ok:false,error:{code:'NOT_SUPPORTED',message:'This fixture has no file storage.'}},location.origin); return;
+ }
+ frame.contentWindow.postMessage({type:'lfos:response',protocolVersion:1,requestId,ok:true,result},location.origin);
+});
+frame.addEventListener('load', () => { integrated = false; publish(); });
+document.querySelector('#wide').onclick = () => { container.style.width = ''; publish(); };
+document.querySelector('#narrow').onclick = () => { container.style.width = '360px'; publish(); };
+function setZoom(value) {
+ zoom = value;
+ publish();
+}
+document.querySelector('#zoom-in').onclick = () => setZoom(200);
+document.querySelector('#zoom-out').onclick = () => setZoom(50);
+document.querySelector('#zoom-normal').onclick = () => setZoom(100);
+document.querySelector('#reset').onclick = () => { integrated=false; publish(); };
+</script>
+</html>
+

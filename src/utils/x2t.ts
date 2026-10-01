@@ -10,6 +10,7 @@ interface EmscriptenModule {
     FS: EmscriptenFileSystem
     ccall: (funcName: string, returnType: string, argTypes: string[], args: any[]) => number
     onRuntimeInitialized: () => void
+    calledRun?: boolean
 }
 
 interface ConversionResult {
@@ -78,7 +79,7 @@ class X2TConverter {
         '/working/themes',
     ]
     private readonly SCRIPT_PATH = './wasm/x2t/x2t.js'
-    private readonly INIT_TIMEOUT = 20000
+    private readonly INIT_TIMEOUT = 120000
 
     /**
      * 加载 X2T 脚本文件
@@ -144,7 +145,7 @@ class X2TConverter {
                     }
                 }, this.INIT_TIMEOUT)
 
-                x2t.onRuntimeInitialized = () => {
+                const finishInitialization = () => {
                     try {
                         clearTimeout(timeoutId)
                         this.createWorkingDirectories(x2t)
@@ -156,6 +157,10 @@ class X2TConverter {
                         reject(error)
                     }
                 }
+                x2t.onRuntimeInitialized = finishInitialization
+                // A cached/small WASM download can finish before script.onload.
+                // Emscripten exposes calledRun once the runtime is usable.
+                if (x2t.calledRun) finishInitialization()
             })
         } catch (error) {
             this.initPromise = null // 重置以允许重试

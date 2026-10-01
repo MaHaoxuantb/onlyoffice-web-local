@@ -17,7 +17,8 @@ import {
     getDocumentMimeType,
     c_oAscFileType2,
 } from '@/utils/x2t'
-import { saveFileToLFOS, setLFOSUnsavedChanges } from '@/services/lfos'
+import { getLFOS, saveFileToLFOS, releaseLFOSFile, setLFOSUnsavedChanges } from '@/services/lfos'
+import { installOnlyOfficeWindowChrome } from '@/services/window-chrome'
 import { showAppMessage } from '@/services/feedback'
 // 设置prop
 const props = defineProps<{
@@ -35,6 +36,8 @@ let lastReportedUnsavedChanges: boolean | null = null
 let pendingUnsavedChanges: boolean | null = null
 let unsavedChangesReport: Promise<void> | null = null
 let editorShortcutWindow: Window | null = null
+let disposeWindowChrome: (() => void) | null = null
+let chromeRevision = 0
 
 const activeMedia: Record<string, string> = {}
 
@@ -57,8 +60,12 @@ onMounted(async () => {
         // 添加props.file监听
 
         stopFileWatch = watch(
-            () => props.file.fileName,
-            async () => {
+            () => props.file,
+            async (document, _previous, onCleanup) => {
+                const source = document.file ?? document
+                onCleanup(() => {
+                    void releaseLFOSFile(source).catch(error => console.warn('Could not release file handle:', error))
+                })
                 try {
                     await openFile()
                 } catch (error) {
@@ -122,6 +129,9 @@ function createEditorInstance(config: {
     media?: any
     sourceFile?: File
 }) {
+    const instanceChromeRevision = ++chromeRevision
+    disposeWindowChrome?.()
+    disposeWindowChrome = null
     // 清理旧编辑器实例
     if (editor.value) {
         editor.value.destroyEditor()
@@ -155,6 +165,7 @@ function createEditorInstance(config: {
         editorConfig: {
             lang: 'en',
             customization: {
+                compactHeader: false,
                 help: false,
                 about: false,
                 hideRightMenu: true,
@@ -176,6 +187,7 @@ function createEditorInstance(config: {
             onAppReady: () => {
                 applyLFOSFileMenuPolicy()
                 installEditorSaveShortcut()
+                void installWindowChrome(instanceChromeRevision)
                 // 设置媒体资源
                 if (documentMedia) {
                     editor.value.sendCommand({
@@ -215,6 +227,9 @@ async function openFile() {
 }
 
 onBeforeUnmount(() => {
+    chromeRevision += 1
+    disposeWindowChrome?.()
+    disposeWindowChrome = null
     window.removeEventListener('keydown', handleSaveShortcut, true)
     editorShortcutWindow?.removeEventListener('keydown', handleSaveShortcut, true)
     editorShortcutWindow = null
@@ -233,6 +248,15 @@ onBeforeUnmount(() => {
     }
     clearMediaUrls()
 })
+
+async function installWindowChrome(revision: number) {
+    const lfos = await getLFOS()
+    if (revision !== chromeRevision || !lfos?.capabilities.has('windowChrome.setIntegrated')) return
+    const frame = document.querySelector<HTMLIFrameElement>('.editor-container > iframe')
+    if (!frame) return
+    disposeWindowChrome?.()
+    disposeWindowChrome = installOnlyOfficeWindowChrome(frame, lfos.windowChrome)
+}
 
 function handleSaveShortcut(event: KeyboardEvent) {
     if (!(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey ||
@@ -326,6 +350,8 @@ function handleDocumentStateChange(event: { data?: boolean }) {
 async function handleSaveDocument(event: SaveEvent) {
     console.log('Save document event:', event)
     if (saveInProgress) return
+    const wasDirty = documentDirty
+    const isCopy = event.data?.option?.actionType === 6
     saveInProgress = true
     dirtiedDuringSave = false
     reportUnsavedChanges()
@@ -334,10 +360,11 @@ async function handleSaveDocument(event: SaveEvent) {
         if (!event.data?.data?.data) throw new Error('ONLYOFFICE did not provide document data')
         const { data, option } = event.data
         const outputFormat = c_oAscFileType2[option.outputformat] || 'DOCX'
-        const converted = await convertBinToDocument(data.data, props.file.fileName, outputFormat)
+        const document = props.file
+        const sourceFile = isCopy ? null : (document.file ?? document)
+        const converted = await convertBinToDocument(data.data, document.fileName, outputFormat)
         // The embedded editors also use onSave for Download As. actionType 6
         // means an exported copy and must never replace the opened LFOS file.
-        const sourceFile = option.actionType === 6 ? null : props.file.file
         const lfosResult = await saveFileToLFOS(
             converted.data,
             converted.fileName,
@@ -360,7 +387,7 @@ async function handleSaveDocument(event: SaveEvent) {
         void showAppMessage('The document could not be saved. Please try again.')
     } finally {
         saveInProgress = false
-        documentDirty = errorCode !== 0 || dirtiedDuringSave
+        documentDirty = errorCode !== 0 || dirtiedDuringSave || (isCopy && wasDirty)
         reportUnsavedChanges()
         editor.value?.sendCommand({
             command: 'asc_onSaveCallback',
