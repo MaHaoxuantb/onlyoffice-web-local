@@ -122,11 +122,18 @@ export function installOnlyOfficeWindowChrome(frame: HTMLIFrameElement, chrome: 
     if (!layout || !toolbarItem || !toolbar) return
     if (mode === 'view') {
       if (toolbarItem.height > 0) editToolbarHeight = toolbarItem.height
-      toolbar.style.setProperty('display', 'none', 'important')
+      // Keep the ribbon measurable while it is hidden. ONLYOFFICE caches its
+      // tab geometry during restriction changes; display:none gives it zero
+      // widths and the tabs stop responding after returning to edit mode.
+      toolbar.style.setProperty('visibility', 'hidden', 'important')
+      toolbar.style.setProperty('pointer-events', 'none', 'important')
+      toolbar.setAttribute('aria-hidden', 'true')
       toolbarItem.height = 0
       fileMenu?.style.setProperty('display', 'none', 'important')
     } else {
-      toolbar.style.removeProperty('display')
+      toolbar.style.removeProperty('visibility')
+      toolbar.style.removeProperty('pointer-events')
+      toolbar.removeAttribute('aria-hidden')
       fileMenu?.style.removeProperty('display')
       if (editToolbarHeight !== null) toolbarItem.height = editToolbarHeight
     }
@@ -147,8 +154,11 @@ export function installOnlyOfficeWindowChrome(frame: HTMLIFrameElement, chrome: 
     const api = namespace?.getController('Main')?.api
     const restrictions = editorWindow.Asc?.c_oAscRestrictionType
     if (!api || !restrictions) return
+    // The ribbon must be visible and laid out before the SDK unlocks its
+    // controls, otherwise its tab component records a zero-size layout.
+    if (mode === 'edit') updateToolbarVisibility(mode)
     api.asc_setRestriction(mode === 'view' ? restrictions.View : restrictions.None)
-    updateToolbarVisibility(mode)
+    if (mode === 'view') updateToolbarVisibility(mode)
     updateModeSwitch(mode)
   }
   const installModeSwitch = (title: HTMLElement) => {
