@@ -55,6 +55,7 @@ export function installOnlyOfficeWindowChrome(frame: HTMLIFrameElement, chrome: 
 
   const style = doc.createElement('style')
   style.textContent = `
+    #file-menu-panel.lfos-view-hidden { display: none !important; }
     #app-title.lfos-integrated-header { touch-action: none; }
     .lfos-integrated-header #box-document-title {
       box-sizing: border-box;
@@ -116,19 +117,19 @@ export function installOnlyOfficeWindowChrome(frame: HTMLIFrameElement, chrome: 
     if (!layout || !toolbarItem || !toolbar) return
     if (mode === 'view') {
       if (toolbarItem.height > 0) editToolbarHeight = toolbarItem.height
-      // Keep the ribbon measurable while it is hidden. ONLYOFFICE caches its
-      // tab geometry during restriction changes; display:none gives it zero
-      // widths and the tabs stop responding after returning to edit mode.
+      // Hide the ribbon while allowing the viewport to use its former space.
       toolbar.style.setProperty('visibility', 'hidden', 'important')
       toolbar.style.setProperty('pointer-events', 'none', 'important')
       toolbar.setAttribute('aria-hidden', 'true')
       toolbarItem.height = 0
-      fileMenu?.style.setProperty('display', 'none', 'important')
+      fileMenu?.classList.add('lfos-view-hidden')
     } else {
       toolbar.style.removeProperty('visibility')
       toolbar.style.removeProperty('pointer-events')
       toolbar.removeAttribute('aria-hidden')
-      fileMenu?.style.removeProperty('display')
+      // ONLYOFFICE owns the panel's inline display:none. Removing it exposes
+      // an absolute, z-index:1003 panel above the ribbon (z-index:1001).
+      fileMenu?.classList.remove('lfos-view-hidden')
       if (editToolbarHeight !== null) toolbarItem.height = editToolbarHeight
     }
     const resizeEditor = () => {
@@ -147,8 +148,6 @@ export function installOnlyOfficeWindowChrome(frame: HTMLIFrameElement, chrome: 
     const namespace = editorWindow.DE ?? editorWindow.SSE ?? editorWindow.PE
     const api = namespace?.getController('Main')?.api
     if (!api) return
-    // Use the SDK's reversible viewer state rather than document-protection
-    // restrictions. Restrictions leave ribbon locks behind after View -> Edit.
     if (mode === 'edit') updateToolbarVisibility(mode)
     api.asc_setViewMode(mode === 'view')
     if (mode === 'view') updateToolbarVisibility(mode)

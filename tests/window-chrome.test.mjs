@@ -14,7 +14,7 @@ function fixture(namespaceName) {
   let frameId = 0, subscribed, resizer
   const actions = { scrollWidth: 240 }, extra = { scrollWidth: 0 }
   let modeButton = null
-  const toolbarProperties = new Map(), toolbarAttributes = new Map(), modeOperations = []
+  const toolbarProperties = new Map(), toolbarAttributes = new Map(), surfaceProperties = new Map(), surfaceAttributes = new Map(), modeOperations = []
   const toolbar = {
     style: {
       setProperty: (name, value) => toolbarProperties.set(name, value),
@@ -23,15 +23,30 @@ function fixture(namespaceName) {
     setAttribute: (name, value) => toolbarAttributes.set(name, value),
     removeAttribute: name => toolbarAttributes.delete(name),
   }
-  const fileMenu = { style: { setProperty: (name, value) => toolbarProperties.set(`file-${name}`, value), removeProperty: name => toolbarProperties.delete(`file-${name}`) } }
+  const editorSurface = {
+    style: {
+      setProperty: (name, value) => surfaceProperties.set(name, value),
+      removeProperty: name => surfaceProperties.delete(name),
+    },
+    setAttribute: (name, value) => surfaceAttributes.set(name, value),
+    removeAttribute: name => surfaceAttributes.delete(name),
+    contains: () => false,
+  }
+  // Match the real Viewport template: this overlay starts with inline display:none.
+  toolbarProperties.set('file-display', 'none')
+  const fileMenuClasses = new Set()
+  const fileMenu = {
+    classList: { add: name => fileMenuClasses.add(name), remove: name => fileMenuClasses.delete(name) },
+    style: { setProperty: (name, value) => toolbarProperties.set(`file-${name}`, value), removeProperty: name => toolbarProperties.delete(`file-${name}`) },
+  }
   const title = {
     querySelector: name => name.includes('.hedset') ? actions : extra,
     append: element => { modeButton = element },
   }
   const header = { getBoundingClientRect: () => ({ height: 28 }), classList: { toggle: (name, on) => on ? classes.add(name) : classes.delete(name), remove: name => classes.delete(name) }, style: { setProperty: (name, value) => properties.set(name, value), removeProperty: name => properties.delete(name) }, querySelector: () => title }
-  const item = { height: 28 }, toolbarItem = { height: 92 }, calls = [], bindings = [], viewModes = [], resizeCalls = [], layoutChanges = []
+  const item = { height: 28 }, toolbarItem = { height: 92 }, calls = [], bindings = [], keyEvents = [], resizeCalls = [], layoutChanges = []
   const editorApi = {
-    asc_setViewMode: value => { viewModes.push(value); modeOperations.push(`view-mode:${value}`) },
+    asc_setViewMode: value => { keyEvents.push(value); modeOperations.push(`view-mode:${value}`) },
     ...(namespaceName === 'SSE'
       ? { asc_Resize: () => resizeCalls.push('asc_Resize') }
       : { Resize: () => resizeCalls.push('Resize') }),
@@ -53,7 +68,7 @@ function fixture(namespaceName) {
         remove: () => { modeButton = null },
       }
     },
-    querySelector: name => name === '#app-title' ? header : name === '#toolbar' ? toolbar : name === '#file-menu-panel' ? fileMenu : title,
+    querySelector: name => name === '#app-title' ? header : name === '#toolbar' ? toolbar : name === '#file-menu-panel' ? fileMenu : name === '#editor_sdk' ? editorSurface : title,
   }
   const win = {
     [namespaceName]: { getController: name => name === 'Main'
@@ -77,7 +92,7 @@ function fixture(namespaceName) {
   globalThis.ResizeObserver = class { constructor(fn) { resizer = fn } observe() {} disconnect() {} }
   globalThis.MutationObserver = class { observe() {} disconnect() {} }
   const flush = async () => { for (let i = 0; i < 8; i++) { await Promise.resolve(); const pending = [...queue.values()]; queue.clear(); pending.forEach(fn => fn()); } }
-  return { frame, chrome, item, toolbarItem, toolbarProperties, toolbarAttributes, properties, classes, bindings, calls, viewModes, resizeCalls, layoutChanges, modeOperations, modeButton: () => modeButton, flush, resize: () => resizer(), geometry: value => { geometry = value; subscribed?.(value) } }
+  return { frame, chrome, item, toolbarItem, toolbarProperties, toolbarAttributes, surfaceProperties, surfaceAttributes, properties, classes, bindings, calls, keyEvents, resizeCalls, layoutChanges, modeOperations, modeButton: () => modeButton, flush, resize: () => resizer(), geometry: value => { geometry = value; subscribed?.(value) } }
 }
 
 test('all three native editor headers integrate, fall back on narrow widths, update zoom, and clean up', async () => {
@@ -102,20 +117,31 @@ test('all three native editor headers integrate, fall back on narrow widths, upd
       assert.equal(f.toolbarProperties.get('pointer-events'), 'none')
       assert.equal(f.toolbarProperties.has('display'), false)
       assert.equal(f.toolbarAttributes.get('aria-hidden'), 'true')
+      assert.equal(f.surfaceProperties.has('pointer-events'), false)
+      assert.equal(f.surfaceAttributes.has('inert'), false)
       assert.equal(f.toolbarItem.height, 0)
       await f.flush()
       assert.deepEqual(f.resizeCalls, namespace === 'SSE' ? ['asc_Resize', 'asc_Resize'] : ['Resize', 'Resize'])
       assert.deepEqual(f.layoutChanges, ['toolbar'])
       f.modeButton().click()
       await f.flush()
-      assert.deepEqual(f.viewModes, [true, false])
+      assert.deepEqual(f.keyEvents, [true, false])
+      assert.equal(f.toolbarProperties.get('file-display'), 'none', 'the File overlay must remain hidden so ribbon tabs receive clicks')
       assert.equal(f.toolbarProperties.has('visibility'), false)
       assert.equal(f.toolbarProperties.has('pointer-events'), false)
       assert.equal(f.toolbarAttributes.has('aria-hidden'), false)
       assert.equal(f.toolbarItem.height, 92)
+      assert.equal(f.surfaceProperties.has('pointer-events'), false)
+      assert.equal(f.surfaceAttributes.has('inert'), false)
+      assert.equal(f.surfaceAttributes.has('aria-readonly'), false)
       assert.ok(f.modeOperations.indexOf('show-toolbar') < f.modeOperations.indexOf('view-mode:false'))
       assert.equal(f.resizeCalls.length, 4)
       assert.deepEqual(f.layoutChanges, ['toolbar', 'toolbar'])
+      for (let cycle = 0; cycle < 3; cycle++) {
+        f.modeButton().click(); await f.flush()
+        f.modeButton().click(); await f.flush()
+        assert.equal(f.toolbarProperties.get('file-display'), 'none')
+      }
       f.frame.clientWidth = 320; f.resize(); await f.flush()
       assert.equal(f.calls.at(-1), false)
       assert.equal(f.item.height, 28)
