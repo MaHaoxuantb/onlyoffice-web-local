@@ -38,6 +38,7 @@ let unsavedChangesReport: Promise<void> | null = null
 let editorShortcutWindow: Window | null = null
 let disposeWindowChrome: (() => void) | null = null
 let chromeRevision = 0
+const DEFAULT_DOCUMENT_FONT = 'Ubuntu'
 
 const activeMedia: Record<string, string> = {}
 
@@ -108,6 +109,7 @@ async function handleDocumentOperation(options: { isNew: boolean; fileName: stri
 
         // 创建编辑器实例
         createEditorInstance({
+            isNew,
             fileName,
             fileType,
             binData: documentData.bin,
@@ -123,6 +125,7 @@ async function handleDocumentOperation(options: { isNew: boolean; fileName: stri
 
 // 公共编辑器创建方法
 function createEditorInstance(config: {
+    isNew: boolean
     fileName: string
     fileType: string
     binData: Uint8Array | string
@@ -139,7 +142,7 @@ function createEditorInstance(config: {
     }
 
     clearMediaUrls()
-    const { fileName, fileType, binData, media: documentMedia, sourceFile } = config
+    const { isNew, fileName, fileType, binData, media: documentMedia, sourceFile } = config
     Object.assign(activeMedia, documentMedia)
     if (documentObjectUrl) URL.revokeObjectURL(documentObjectUrl)
     documentObjectUrl = URL.createObjectURL(sourceFile ?? new Blob([]))
@@ -170,7 +173,7 @@ function createEditorInstance(config: {
                 // Use the platform's standard UI face without shipping or
                 // depending on a separately licensed commercial font.
                 font: {
-                    name: 'system-ui, sans-serif',
+                    name: 'Ubuntu, system-ui, sans-serif',
                 },
                 help: false,
                 about: false,
@@ -210,6 +213,7 @@ function createEditorInstance(config: {
                 })
             },
             onDocumentReady: () => {
+                if (isNew) applyNewDocumentDefaultFont()
                 console.log('Document loaded:', fileName)
             },
             onDocumentStateChange: handleDocumentStateChange,
@@ -220,6 +224,23 @@ function createEditorInstance(config: {
             writeFile: handleWriteFile,
         },
     })
+}
+
+function applyNewDocumentDefaultFont() {
+    const frame = document.querySelector<HTMLIFrameElement>('.editor-container > iframe')
+    const editorWindow = frame?.contentWindow as (Window & {
+        DE?: { getController(name: string): { api?: { put_TextPrFontName?(font: string): void } } | undefined }
+        PE?: { getController(name: string): { api?: { put_TextPrFontName?(font: string): void } } | undefined }
+        SSE?: { getController(name: string): { api?: { asc_setCellFontName?(font: string): void } } | undefined }
+    }) | null
+    const namespace = editorWindow?.DE ?? editorWindow?.SSE ?? editorWindow?.PE
+    const api = namespace?.getController('Main')?.api as {
+        put_TextPrFontName?(font: string): void
+        asc_setCellFontName?(font: string): void
+    } | undefined
+    if (!api) return
+    if ('asc_setCellFontName' in api) api.asc_setCellFontName?.(DEFAULT_DOCUMENT_FONT)
+    else api.put_TextPrFontName?.(DEFAULT_DOCUMENT_FONT)
 }
 
 // 修改后的openFile方法

@@ -2,13 +2,17 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { readFile } from 'node:fs/promises'
 
-test('the app and editor default to the system UI font and hidden rulers', async () => {
+test('the editor uses an open document font, a system UI fallback, and hidden rulers', async () => {
     const [component, baseStyles] = await Promise.all([
         readFile(new URL('../src/components/DocumentHandler.vue', import.meta.url), 'utf8'),
         readFile(new URL('../src/assets/base.css', import.meta.url), 'utf8'),
     ])
 
-    assert.match(component, /font:\s*{\s*name:\s*'system-ui, sans-serif'/)
+    assert.match(component, /DEFAULT_DOCUMENT_FONT\s*=\s*'Ubuntu'/)
+    assert.match(component, /font:\s*{\s*name:\s*'Ubuntu, system-ui, sans-serif'/)
+    assert.match(component, /if \(isNew\) applyNewDocumentDefaultFont\(\)/)
+    assert.match(component, /put_TextPrFontName\?\.\(DEFAULT_DOCUMENT_FONT\)/)
+    assert.match(component, /asc_setCellFontName\?\.\(DEFAULT_DOCUMENT_FONT\)/)
     assert.match(component, /hideRulers:\s*true/)
     assert.match(baseStyles, /font-family:\s*system-ui,\s*sans-serif/)
 })

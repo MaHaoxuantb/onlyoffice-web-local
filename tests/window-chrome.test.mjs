@@ -29,9 +29,9 @@ function fixture(namespaceName) {
     append: element => { modeButton = element },
   }
   const header = { getBoundingClientRect: () => ({ height: 28 }), classList: { toggle: (name, on) => on ? classes.add(name) : classes.delete(name), remove: name => classes.delete(name) }, style: { setProperty: (name, value) => properties.set(name, value), removeProperty: name => properties.delete(name) }, querySelector: () => title }
-  const item = { height: 28 }, toolbarItem = { height: 92 }, calls = [], bindings = [], restrictions = [], resizeCalls = [], layoutChanges = []
+  const item = { height: 28 }, toolbarItem = { height: 92 }, calls = [], bindings = [], viewModes = [], resizeCalls = [], layoutChanges = []
   const editorApi = {
-    asc_setRestriction: value => { restrictions.push(value); modeOperations.push(`restriction:${value}`) },
+    asc_setViewMode: value => { viewModes.push(value); modeOperations.push(`view-mode:${value}`) },
     ...(namespaceName === 'SSE'
       ? { asc_Resize: () => resizeCalls.push('asc_Resize') }
       : { Resize: () => resizeCalls.push('Resize') }),
@@ -56,7 +56,6 @@ function fixture(namespaceName) {
     querySelector: name => name === '#app-title' ? header : name === '#toolbar' ? toolbar : name === '#file-menu-panel' ? fileMenu : title,
   }
   const win = {
-    Asc: { c_oAscRestrictionType: { None: 0, View: 4 } },
     [namespaceName]: { getController: name => name === 'Main'
       ? { api: editorApi }
       : {
@@ -78,7 +77,7 @@ function fixture(namespaceName) {
   globalThis.ResizeObserver = class { constructor(fn) { resizer = fn } observe() {} disconnect() {} }
   globalThis.MutationObserver = class { observe() {} disconnect() {} }
   const flush = async () => { for (let i = 0; i < 8; i++) { await Promise.resolve(); const pending = [...queue.values()]; queue.clear(); pending.forEach(fn => fn()); } }
-  return { frame, chrome, item, toolbarItem, toolbarProperties, toolbarAttributes, properties, classes, bindings, calls, restrictions, resizeCalls, layoutChanges, modeOperations, modeButton: () => modeButton, flush, resize: () => resizer(), geometry: value => { geometry = value; subscribed?.(value) } }
+  return { frame, chrome, item, toolbarItem, toolbarProperties, toolbarAttributes, properties, classes, bindings, calls, viewModes, resizeCalls, layoutChanges, modeOperations, modeButton: () => modeButton, flush, resize: () => resizer(), geometry: value => { geometry = value; subscribed?.(value) } }
 }
 
 test('all three native editor headers integrate, fall back on narrow widths, update zoom, and clean up', async () => {
@@ -109,12 +108,12 @@ test('all three native editor headers integrate, fall back on narrow widths, upd
       assert.deepEqual(f.layoutChanges, ['toolbar'])
       f.modeButton().click()
       await f.flush()
-      assert.deepEqual(f.restrictions, [4, 0])
+      assert.deepEqual(f.viewModes, [true, false])
       assert.equal(f.toolbarProperties.has('visibility'), false)
       assert.equal(f.toolbarProperties.has('pointer-events'), false)
       assert.equal(f.toolbarAttributes.has('aria-hidden'), false)
       assert.equal(f.toolbarItem.height, 92)
-      assert.ok(f.modeOperations.indexOf('show-toolbar') < f.modeOperations.indexOf('restriction:0'))
+      assert.ok(f.modeOperations.indexOf('show-toolbar') < f.modeOperations.indexOf('view-mode:false'))
       assert.equal(f.resizeCalls.length, 4)
       assert.deepEqual(f.layoutChanges, ['toolbar', 'toolbar'])
       f.frame.clientWidth = 320; f.resize(); await f.flush()

@@ -19,12 +19,6 @@ type EditorWindow = Window & {
   DE?: EditorNamespace
   SSE?: EditorNamespace
   PE?: EditorNamespace
-  Asc?: {
-    c_oAscRestrictionType?: {
-      None: number
-      View: number
-    }
-  }
 }
 interface EditorNamespace {
   getController(name: string): {
@@ -34,7 +28,7 @@ interface EditorNamespace {
     } }
     onLayoutChanged?(region: string): void
     api?: {
-      asc_setRestriction(restriction: number): void
+      asc_setViewMode(view: boolean): void
       Resize?(): void
       asc_Resize?(): void
     }
@@ -152,12 +146,11 @@ export function installOnlyOfficeWindowChrome(frame: HTMLIFrameElement, chrome: 
   const setEditorMode = (mode: 'view' | 'edit') => {
     const namespace = editorWindow.DE ?? editorWindow.SSE ?? editorWindow.PE
     const api = namespace?.getController('Main')?.api
-    const restrictions = editorWindow.Asc?.c_oAscRestrictionType
-    if (!api || !restrictions) return
-    // The ribbon must be visible and laid out before the SDK unlocks its
-    // controls, otherwise its tab component records a zero-size layout.
+    if (!api) return
+    // Use the SDK's reversible viewer state rather than document-protection
+    // restrictions. Restrictions leave ribbon locks behind after View -> Edit.
     if (mode === 'edit') updateToolbarVisibility(mode)
-    api.asc_setRestriction(mode === 'view' ? restrictions.View : restrictions.None)
+    api.asc_setViewMode(mode === 'view')
     if (mode === 'view') updateToolbarVisibility(mode)
     updateModeSwitch(mode)
   }
