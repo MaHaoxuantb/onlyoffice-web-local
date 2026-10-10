@@ -14,12 +14,21 @@ function fixture(namespaceName) {
   let frameId = 0, subscribed, resizer
   const actions = { scrollWidth: 240 }, extra = { scrollWidth: 0 }
   let modeButton = null
+  const toolbarProperties = new Map()
+  const toolbar = { style: { setProperty: (name, value) => toolbarProperties.set(name, value), removeProperty: name => toolbarProperties.delete(name) } }
+  const fileMenu = { style: { setProperty: (name, value) => toolbarProperties.set(`file-${name}`, value), removeProperty: name => toolbarProperties.delete(`file-${name}`) } }
   const title = {
     querySelector: name => name.includes('.hedset') ? actions : extra,
     append: element => { modeButton = element },
   }
   const header = { getBoundingClientRect: () => ({ height: 28 }), classList: { toggle: (name, on) => on ? classes.add(name) : classes.delete(name), remove: name => classes.delete(name) }, style: { setProperty: (name, value) => properties.set(name, value), removeProperty: name => properties.delete(name) }, querySelector: () => title }
-  const item = { height: 28 }, calls = [], bindings = [], restrictions = []
+  const item = { height: 28 }, toolbarItem = { height: 92 }, calls = [], bindings = [], restrictions = [], resizeCalls = [], layoutChanges = []
+  const editorApi = {
+    asc_setRestriction: value => restrictions.push(value),
+    ...(namespaceName === 'SSE'
+      ? { asc_Resize: () => resizeCalls.push('asc_Resize') }
+      : { Resize: () => resizeCalls.push('Resize') }),
+  }
   const doc = {
     head: { append() {} },
     body: {},
@@ -37,13 +46,20 @@ function fixture(namespaceName) {
         remove: () => { modeButton = null },
       }
     },
-    querySelector: name => name === '#app-title' ? header : title,
+    querySelector: name => name === '#app-title' ? header : name === '#toolbar' ? toolbar : name === '#file-menu-panel' ? fileMenu : title,
   }
   const win = {
     Asc: { c_oAscRestrictionType: { None: 0, View: 4 } },
     [namespaceName]: { getController: name => name === 'Main'
-      ? { api: { asc_setRestriction: value => restrictions.push(value) } }
-      : { viewport: { vlayout: { getItem: () => item, doLayout() {} } } } },
+      ? { api: editorApi }
+      : {
+          viewport: { vlayout: { getItem: name => name === 'toolbar' ? toolbarItem : item, doLayout() {} } },
+          onLayoutChanged: region => {
+            layoutChanges.push(region)
+            if (editorApi.asc_Resize) editorApi.asc_Resize()
+            else editorApi.Resize()
+          },
+        } },
     requestAnimationFrame: fn => { queue.set(++frameId, fn); return frameId },
     cancelAnimationFrame: id => queue.delete(id),
     addEventListener: (name, fn) => events.set(name, fn),
@@ -55,7 +71,7 @@ function fixture(namespaceName) {
   globalThis.ResizeObserver = class { constructor(fn) { resizer = fn } observe() {} disconnect() {} }
   globalThis.MutationObserver = class { observe() {} disconnect() {} }
   const flush = async () => { for (let i = 0; i < 8; i++) { await Promise.resolve(); const pending = [...queue.values()]; queue.clear(); pending.forEach(fn => fn()); } }
-  return { frame, chrome, item, properties, classes, bindings, calls, restrictions, modeButton: () => modeButton, flush, resize: () => resizer(), geometry: value => { geometry = value; subscribed?.(value) } }
+  return { frame, chrome, item, toolbarItem, toolbarProperties, properties, classes, bindings, calls, restrictions, resizeCalls, layoutChanges, modeButton: () => modeButton, flush, resize: () => resizer(), geometry: value => { geometry = value; subscribed?.(value) } }
 }
 
 test('all three native editor headers integrate, fall back on narrow widths, update zoom, and clean up', async () => {
@@ -76,8 +92,18 @@ test('all three native editor headers integrate, fall back on narrow widths, upd
       f.modeButton().click()
       assert.equal(f.modeButton().dataset.mode, 'view')
       assert.equal(f.modeButton().getAttribute('aria-checked'), 'false')
+      assert.equal(f.toolbarProperties.get('display'), 'none')
+      assert.equal(f.toolbarItem.height, 0)
+      await f.flush()
+      assert.deepEqual(f.resizeCalls, namespace === 'SSE' ? ['asc_Resize', 'asc_Resize'] : ['Resize', 'Resize'])
+      assert.deepEqual(f.layoutChanges, ['toolbar'])
       f.modeButton().click()
+      await f.flush()
       assert.deepEqual(f.restrictions, [4, 0])
+      assert.equal(f.toolbarProperties.has('display'), false)
+      assert.equal(f.toolbarItem.height, 92)
+      assert.equal(f.resizeCalls.length, 4)
+      assert.deepEqual(f.layoutChanges, ['toolbar', 'toolbar'])
       f.frame.clientWidth = 320; f.resize(); await f.flush()
       assert.equal(f.calls.at(-1), false)
       assert.equal(f.item.height, 28)

@@ -32,7 +32,12 @@ interface EditorNamespace {
       getItem(name: string): { height: number } | undefined
       doLayout(): void
     } }
-    api?: { asc_setRestriction(restriction: number): void }
+    onLayoutChanged?(region: string): void
+    api?: {
+      asc_setRestriction(restriction: number): void
+      Resize?(): void
+      asc_Resize?(): void
+    }
   } | undefined
 }
 
@@ -52,6 +57,7 @@ export function installOnlyOfficeWindowChrome(frame: HTMLIFrameElement, chrome: 
   let editorMode: 'view' | 'edit' = 'edit'
   let modeSwitch: HTMLButtonElement | null = null
   let removeModeSwitchListeners: (() => void) | null = null
+  let editToolbarHeight: number | null = null
 
   const style = doc.createElement('style')
   style.textContent = `
@@ -68,7 +74,7 @@ export function installOnlyOfficeWindowChrome(frame: HTMLIFrameElement, chrome: 
     .lfos-integrated-header #title-doc-name { margin-left: 0 !important; max-width: 100%; max-height: 100%; box-sizing: border-box; }
     .lfos-integrated-header .btn-header { height: 100%; }
     .lfos-editor-mode-switch {
-      display: none;
+      display: inline-flex;
       flex: 0 0 auto;
       align-items: center;
       height: 28px;
@@ -81,7 +87,6 @@ export function installOnlyOfficeWindowChrome(frame: HTMLIFrameElement, chrome: 
       font: 600 12px/1 system-ui, sans-serif;
       cursor: pointer;
     }
-    .lfos-integrated-header .lfos-editor-mode-switch { display: inline-flex; }
     .lfos-editor-mode-switch > span {
       min-width: 36px;
       padding: 5px 9px;
@@ -106,12 +111,44 @@ export function installOnlyOfficeWindowChrome(frame: HTMLIFrameElement, chrome: 
       modeSwitch.title = mode === 'edit' ? 'Switch to view mode' : 'Switch to edit mode'
     }
   }
+  const updateToolbarVisibility = (mode: 'view' | 'edit') => {
+    const namespace = editorWindow.DE ?? editorWindow.SSE ?? editorWindow.PE
+    const viewportController = namespace?.getController('Viewport')
+    const layout = viewportController?.viewport?.vlayout
+    const api = namespace?.getController('Main')?.api
+    const toolbarItem = layout?.getItem('toolbar')
+    const toolbar = doc.querySelector<HTMLElement>('#toolbar')
+    const fileMenu = doc.querySelector<HTMLElement>('#file-menu-panel')
+    if (!layout || !toolbarItem || !toolbar) return
+    if (mode === 'view') {
+      if (toolbarItem.height > 0) editToolbarHeight = toolbarItem.height
+      toolbar.style.setProperty('display', 'none', 'important')
+      toolbarItem.height = 0
+      fileMenu?.style.setProperty('display', 'none', 'important')
+    } else {
+      toolbar.style.removeProperty('display')
+      fileMenu?.style.removeProperty('display')
+      if (editToolbarHeight !== null) toolbarItem.height = editToolbarHeight
+    }
+    const resizeEditor = () => {
+      if (disposed) return
+      if (api?.asc_Resize) api.asc_Resize()
+      else api?.Resize?.()
+    }
+    if (viewportController.onLayoutChanged) viewportController.onLayoutChanged('toolbar')
+    else {
+      layout.doLayout()
+      resizeEditor()
+    }
+    editorWindow.requestAnimationFrame(resizeEditor)
+  }
   const setEditorMode = (mode: 'view' | 'edit') => {
     const namespace = editorWindow.DE ?? editorWindow.SSE ?? editorWindow.PE
     const api = namespace?.getController('Main')?.api
     const restrictions = editorWindow.Asc?.c_oAscRestrictionType
     if (!api || !restrictions) return
     api.asc_setRestriction(mode === 'view' ? restrictions.View : restrictions.None)
+    updateToolbarVisibility(mode)
     updateModeSwitch(mode)
   }
   const installModeSwitch = (title: HTMLElement) => {
@@ -139,6 +176,7 @@ export function installOnlyOfficeWindowChrome(frame: HTMLIFrameElement, chrome: 
       if (modeSwitch === button) modeSwitch = null
     }
     updateModeSwitch(editorMode)
+    if (editorMode === 'view') updateToolbarVisibility(editorMode)
   }
   const resetHeader = () => {
     removeModeSwitchListeners?.()
@@ -225,6 +263,7 @@ export function installOnlyOfficeWindowChrome(frame: HTMLIFrameElement, chrome: 
   const cleanup = () => {
     if (disposed) return
     disposed = true
+    setEditorMode('edit')
     observer.disconnect(); mutation.disconnect(); unsubscribe()
     editorWindow.cancelAnimationFrame(scheduled)
     resetHeader(); style.remove()
