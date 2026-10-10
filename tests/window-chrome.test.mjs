@@ -13,18 +13,49 @@ function fixture(namespaceName) {
   const properties = new Map(), classes = new Set(), events = new Map(), queue = new Map()
   let frameId = 0, subscribed, resizer
   const actions = { scrollWidth: 240 }, extra = { scrollWidth: 0 }
-  const title = { querySelector: name => name.includes('.hedset') ? actions : extra }
+  let modeButton = null
+  const title = {
+    querySelector: name => name.includes('.hedset') ? actions : extra,
+    append: element => { modeButton = element },
+  }
   const header = { getBoundingClientRect: () => ({ height: 28 }), classList: { toggle: (name, on) => on ? classes.add(name) : classes.delete(name), remove: name => classes.delete(name) }, style: { setProperty: (name, value) => properties.set(name, value), removeProperty: name => properties.delete(name) }, querySelector: () => title }
-  const item = { height: 28 }, calls = [], bindings = []
-  const doc = { head: { append() {} }, body: {}, createElement: () => ({ remove() {} }), querySelector: name => name === '#app-title' ? header : title }
-  const win = { [namespaceName]: { getController: () => ({ viewport: { vlayout: { getItem: () => item, doLayout() {} } } }) }, requestAnimationFrame: fn => { queue.set(++frameId, fn); return frameId }, cancelAnimationFrame: id => queue.delete(id), addEventListener: (name, fn) => events.set(name, fn), removeEventListener: name => events.delete(name) }
+  const item = { height: 28 }, calls = [], bindings = [], restrictions = []
+  const doc = {
+    head: { append() {} },
+    body: {},
+    createElement: tag => {
+      if (tag !== 'button') return { remove() {} }
+      const listeners = new Map(), attributes = new Map()
+      return {
+        dataset: {},
+        scrollWidth: 92,
+        setAttribute: (name, value) => attributes.set(name, value),
+        getAttribute: name => attributes.get(name),
+        addEventListener: (name, fn) => listeners.set(name, fn),
+        removeEventListener: name => listeners.delete(name),
+        click: () => listeners.get('click')?.({ stopPropagation() {} }),
+        remove: () => { modeButton = null },
+      }
+    },
+    querySelector: name => name === '#app-title' ? header : title,
+  }
+  const win = {
+    Asc: { c_oAscRestrictionType: { None: 0, View: 4 } },
+    [namespaceName]: { getController: name => name === 'Main'
+      ? { api: { asc_setRestriction: value => restrictions.push(value) } }
+      : { viewport: { vlayout: { getItem: () => item, doLayout() {} } } } },
+    requestAnimationFrame: fn => { queue.set(++frameId, fn); return frameId },
+    cancelAnimationFrame: id => queue.delete(id),
+    addEventListener: (name, fn) => events.set(name, fn),
+    removeEventListener: name => events.delete(name),
+  }
   const frame = { contentDocument: doc, contentWindow: win, clientWidth: 1000, getBoundingClientRect: () => ({ top: 0 }) }
   let geometry = { canIntegrate: true, mode: 'titlebar', headerHeight: 48, leadingInset: 108, trailingInset: 64 }
   const chrome = { get: async () => geometry, subscribe: fn => { subscribed = fn; fn(geometry); return () => subscribed = null }, bindDragRegion: element => { bindings.push(element); return () => bindings.splice(bindings.indexOf(element), 1) }, setIntegrated: async integrated => { calls.push(integrated); geometry = { ...geometry, mode: integrated ? 'overlay' : 'titlebar' }; subscribed?.(geometry); return geometry } }
   globalThis.ResizeObserver = class { constructor(fn) { resizer = fn } observe() {} disconnect() {} }
   globalThis.MutationObserver = class { observe() {} disconnect() {} }
   const flush = async () => { for (let i = 0; i < 8; i++) { await Promise.resolve(); const pending = [...queue.values()]; queue.clear(); pending.forEach(fn => fn()); } }
-  return { frame, chrome, item, properties, classes, bindings, calls, flush, resize: () => resizer(), geometry: value => { geometry = value; subscribed?.(value) } }
+  return { frame, chrome, item, properties, classes, bindings, calls, restrictions, modeButton: () => modeButton, flush, resize: () => resizer(), geometry: value => { geometry = value; subscribed?.(value) } }
 }
 
 test('all three native editor headers integrate, fall back on narrow widths, update zoom, and clean up', async () => {
@@ -40,6 +71,13 @@ test('all three native editor headers integrate, fall back on narrow widths, upd
       assert.equal(f.properties.get('--lfos-window-chrome-leading'), '108px')
       assert.ok(f.classes.has('lfos-integrated-header'))
       assert.equal(f.bindings.length, 1)
+      assert.equal(f.modeButton().dataset.mode, 'edit')
+      assert.equal(f.modeButton().getAttribute('aria-checked'), 'true')
+      f.modeButton().click()
+      assert.equal(f.modeButton().dataset.mode, 'view')
+      assert.equal(f.modeButton().getAttribute('aria-checked'), 'false')
+      f.modeButton().click()
+      assert.deepEqual(f.restrictions, [4, 0])
       f.frame.clientWidth = 320; f.resize(); await f.flush()
       assert.equal(f.calls.at(-1), false)
       assert.equal(f.item.height, 28)
@@ -59,6 +97,7 @@ test('all three native editor headers integrate, fall back on narrow widths, upd
       assert.equal(f.bindings.length, 0)
       assert.equal(f.properties.size, 0)
       assert.equal(f.classes.size, 0)
+      assert.equal(f.modeButton(), null)
     }
   } finally { globalThis.ResizeObserver = originalResize; globalThis.MutationObserver = originalMutation }
 })

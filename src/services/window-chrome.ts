@@ -19,12 +19,21 @@ type EditorWindow = Window & {
   DE?: EditorNamespace
   SSE?: EditorNamespace
   PE?: EditorNamespace
+  Asc?: {
+    c_oAscRestrictionType?: {
+      None: number
+      View: number
+    }
+  }
 }
 interface EditorNamespace {
-  getController(name: string): { viewport?: { vlayout?: {
-    getItem(name: string): { height: number } | undefined
-    doLayout(): void
-  } } } | undefined
+  getController(name: string): {
+    viewport?: { vlayout?: {
+      getItem(name: string): { height: number } | undefined
+      doLayout(): void
+    } }
+    api?: { asc_setRestriction(restriction: number): void }
+  } | undefined
 }
 
 export function installOnlyOfficeWindowChrome(frame: HTMLIFrameElement, chrome: WindowChromeAPI): () => void {
@@ -40,6 +49,9 @@ export function installOnlyOfficeWindowChrome(frame: HTMLIFrameElement, chrome: 
   let integrated = false
   let nativeHeight = 28
   let titleBox: HTMLElement | null = null
+  let editorMode: 'view' | 'edit' = 'edit'
+  let modeSwitch: HTMLButtonElement | null = null
+  let removeModeSwitchListeners: (() => void) | null = null
 
   const style = doc.createElement('style')
   style.textContent = `
@@ -55,10 +67,86 @@ export function installOnlyOfficeWindowChrome(frame: HTMLIFrameElement, chrome: 
     .lfos-integrated-header #id-box-doc-name { min-width: 100px; flex: 1 1 auto; height: 100%; align-items: center; }
     .lfos-integrated-header #title-doc-name { margin-left: 0 !important; max-width: 100%; max-height: 100%; box-sizing: border-box; }
     .lfos-integrated-header .btn-header { height: 100%; }
+    .lfos-editor-mode-switch {
+      display: none;
+      flex: 0 0 auto;
+      align-items: center;
+      height: 28px;
+      margin: 0 12px;
+      padding: 2px;
+      border: 1px solid rgba(255, 255, 255, 0.42);
+      border-radius: 999px;
+      background: rgba(0, 0, 0, 0.14);
+      color: rgba(255, 255, 255, 0.78);
+      font: 600 12px/1 system-ui, sans-serif;
+      cursor: pointer;
+    }
+    .lfos-integrated-header .lfos-editor-mode-switch { display: inline-flex; }
+    .lfos-editor-mode-switch > span {
+      min-width: 36px;
+      padding: 5px 9px;
+      border-radius: 999px;
+      text-align: center;
+    }
+    .lfos-editor-mode-switch[data-mode='view'] > [data-mode='view'],
+    .lfos-editor-mode-switch[data-mode='edit'] > [data-mode='edit'] {
+      background: rgba(255, 255, 255, 0.94);
+      color: #343434;
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.18);
+    }
+    .lfos-editor-mode-switch:focus-visible { outline: 2px solid white; outline-offset: 2px; }
   `
   doc.head.append(style)
 
-  const resetHeader = () => { restoreHeader?.(); restoreHeader = null; header = null }
+  const updateModeSwitch = (mode: 'view' | 'edit') => {
+    editorMode = mode
+    if (modeSwitch) {
+      modeSwitch.dataset.mode = mode
+      modeSwitch.setAttribute('aria-checked', String(mode === 'edit'))
+      modeSwitch.title = mode === 'edit' ? 'Switch to view mode' : 'Switch to edit mode'
+    }
+  }
+  const setEditorMode = (mode: 'view' | 'edit') => {
+    const namespace = editorWindow.DE ?? editorWindow.SSE ?? editorWindow.PE
+    const api = namespace?.getController('Main')?.api
+    const restrictions = editorWindow.Asc?.c_oAscRestrictionType
+    if (!api || !restrictions) return
+    api.asc_setRestriction(mode === 'view' ? restrictions.View : restrictions.None)
+    updateModeSwitch(mode)
+  }
+  const installModeSwitch = (title: HTMLElement) => {
+    const button = doc.createElement('button')
+    button.type = 'button'
+    button.className = 'lfos-editor-mode-switch'
+    button.setAttribute('role', 'switch')
+    button.setAttribute('aria-label', 'Document editing mode')
+    button.innerHTML = '<span data-mode="view">View</span><span data-mode="edit">Edit</span>'
+    const stopDrag = (event: Event) => event.stopPropagation()
+    const toggleMode = (event: Event) => {
+      event.stopPropagation()
+      setEditorMode(editorMode === 'edit' ? 'view' : 'edit')
+    }
+    button.addEventListener('pointerdown', stopDrag)
+    button.addEventListener('mousedown', stopDrag)
+    button.addEventListener('click', toggleMode)
+    title.append(button)
+    modeSwitch = button
+    removeModeSwitchListeners = () => {
+      button.removeEventListener('pointerdown', stopDrag)
+      button.removeEventListener('mousedown', stopDrag)
+      button.removeEventListener('click', toggleMode)
+      button.remove()
+      if (modeSwitch === button) modeSwitch = null
+    }
+    updateModeSwitch(editorMode)
+  }
+  const resetHeader = () => {
+    removeModeSwitchListeners?.()
+    removeModeSwitchListeners = null
+    restoreHeader?.()
+    restoreHeader = null
+    header = null
+  }
   const update = () => {
     if (disposed || !geometry) return
     try {
@@ -74,6 +162,7 @@ export function installOnlyOfficeWindowChrome(frame: HTMLIFrameElement, chrome: 
         const originalHeight = item.height
         nativeHeight = originalHeight
         const unbind = chrome.bindDragRegion(next)
+        installModeSwitch(title)
         restoreHeader = () => {
           unbind()
           next.classList.remove('lfos-integrated-header')
@@ -85,7 +174,8 @@ export function installOnlyOfficeWindowChrome(frame: HTMLIFrameElement, chrome: 
       const actions = title?.querySelector<HTMLElement>(':scope > .hedset')
       const extra = title?.querySelector<HTMLElement>(':scope > .extra')
       // Reserve room for every action, an editable title, and an empty drag area.
-      const required = (actions?.scrollWidth ?? 0) + (extra?.scrollWidth ?? 0) + 148
+      const required = (actions?.scrollWidth ?? 0) + (extra?.scrollWidth ?? 0) +
+        (modeSwitch?.scrollWidth ?? 0) + 172
       const fits = !!(geometry.canIntegrate && header && title && actions && layout && item &&
         header.getBoundingClientRect().height > 0 && Math.abs(frame.getBoundingClientRect().top) <= 1 &&
         frame.clientWidth >= geometry.leadingInset + geometry.trailingInset + required)
