@@ -158,6 +158,7 @@ function createEditorInstance(config: {
             fileType: fileType,
             permissions: {
                 edit: true,
+                download: false,
                 chat: false,
                 protect: false,
             },
@@ -191,7 +192,7 @@ function createEditorInstance(config: {
         },
         events: {
             onAppReady: () => {
-                applyLFOSFileMenuPolicy()
+                applyEditorUIRestrictions()
                 installEditorSaveShortcut()
                 void installWindowChrome(instanceChromeRevision)
                 // 设置媒体资源
@@ -444,14 +445,21 @@ async function handleExportDocument(event: ExportEvent) {
     }
 }
 
-function applyLFOSFileMenuPolicy() {
+function applyEditorUIRestrictions() {
     const editorFrame = document.querySelector<HTMLIFrameElement>('.editor-container > iframe')
     const editorDocument = editorFrame?.contentDocument
-    if (!editorDocument || editorDocument.getElementById('lfos-file-menu-policy')) return
+    if (!editorDocument || editorDocument.getElementById('lfos-editor-ui-restrictions')) return
 
     const style = editorDocument.createElement('style')
-    style.id = 'lfos-file-menu-policy'
-    style.textContent = '#fm-btn-download-online { display: none !important; }'
+    style.id = 'lfos-editor-ui-restrictions'
+    style.textContent = `
+        #fm-btn-download,
+        #fm-btn-download-online,
+        #slot-btn-dt-download,
+        #slot-hbtn-download {
+            display: none !important;
+        }
+    `
     editorDocument.head.appendChild(style)
 }
 
