@@ -166,9 +166,15 @@ function createEditorInstance(config: {
             lang: 'en',
             customization: {
                 compactHeader: false,
+                // Use the platform's standard UI face without shipping or
+                // depending on a separately licensed commercial font.
+                font: {
+                    name: 'system-ui, sans-serif',
+                },
                 help: false,
                 about: false,
                 hideRightMenu: true,
+                hideRulers: true,
                 features: {
                     spellcheck: {
                         change: false,
