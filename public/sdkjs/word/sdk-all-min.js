@@ -45777,12 +45777,14 @@ window.AscCommon.od = new jh();
     }
   };
   a.prototype.y3a = function (t) {
+    const wasViewMode = this.Mo;
     this.Mo = !!t;
     if (this.$ha) {
       if (t) {
         this.dme();
         this.rn = false;
-        AscCommon.od.rpa(true);
+        // Balance the view-mode lock when the same document becomes editable.
+        if (!wasViewMode) AscCommon.od.rpa(true);
         if (this.ma.Nb.nj == null) {
           this.ma.Nb.oz();
           this.ma.Xfc();
@@ -45792,6 +45794,7 @@ window.AscCommon.od = new jh();
         }
         this.sMc();
       } else {
+        if (wasViewMode) AscCommon.od.rpa(false);
         this.ma.FAb();
         this.ma.Nb.oz();
         this.ma.Xta(true);
