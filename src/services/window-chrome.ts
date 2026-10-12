@@ -22,7 +22,7 @@ type EditorWindow = Window & {
 }
 interface EditorNamespace {
   getController(name: string): {
-    viewport?: { vlayout?: {
+    viewport?: { hlayout?: { doLayout(): void }; celayout?: { doLayout(): void }; vlayout?: {
       getItem(name: string): { height: number } | undefined
       doLayout(): void
     } }
@@ -141,9 +141,13 @@ export function installOnlyOfficeWindowChrome(frame: HTMLIFrameElement, chrome: 
       if (api?.asc_Resize) api.asc_Resize()
       else api?.Resize?.()
     }
-    if (viewportController.onLayoutChanged) viewportController.onLayoutChanged('toolbar')
+    // The toolbar region only lays out vertically. Changing the right menu
+    // also needs the horizontal pass used by ONLYOFFICE on window resize.
+    if (viewportController.onLayoutChanged) viewportController.onLayoutChanged('window')
     else {
       layout.doLayout()
+      viewportController.viewport?.celayout?.doLayout()
+      viewportController.viewport?.hlayout?.doLayout()
       resizeEditor()
     }
     editorWindow.requestAnimationFrame(resizeEditor)

@@ -9,7 +9,7 @@ async function loadAdapter() {
   return import(`data:text/javascript;base64,${Buffer.from(outputText).toString('base64')}`)
 }
 
-function fixture(namespaceName) {
+function fixture(namespaceName, nativeLayoutChanged) {
   const properties = new Map(), classes = new Set(), events = new Map(), queue = new Map()
   let frameId = 0, subscribed, resizer
   const actions = { scrollWidth: 240 }, extra = { scrollWidth: 0 }
@@ -80,6 +80,7 @@ function fixture(namespaceName) {
           viewport: { vlayout: { getItem: name => name === 'toolbar' ? toolbarItem : item, doLayout() {} } },
           onLayoutChanged: region => {
             layoutChanges.push(region)
+            if (nativeLayoutChanged) return nativeLayoutChanged(region, editorApi, rightMenuClasses)
             if (editorApi.asc_Resize) editorApi.asc_Resize()
             else editorApi.Resize()
           },
@@ -126,7 +127,7 @@ test('all three native editor headers integrate, fall back on narrow widths, upd
       assert.ok(f.rightMenuClasses.has('lfos-view-hidden'))
       await f.flush()
       assert.deepEqual(f.resizeCalls, namespace === 'SSE' ? ['asc_Resize', 'asc_Resize'] : ['Resize', 'Resize'])
-      assert.deepEqual(f.layoutChanges, ['toolbar'])
+      assert.deepEqual(f.layoutChanges, ['window'])
       f.modeButton().click()
       await f.flush()
       assert.deepEqual(f.keyEvents, [true, false])
@@ -141,7 +142,7 @@ test('all three native editor headers integrate, fall back on narrow widths, upd
       assert.equal(f.surfaceAttributes.has('aria-readonly'), false)
       assert.ok(f.modeOperations.indexOf('show-toolbar') < f.modeOperations.indexOf('view-mode:false'))
       assert.equal(f.resizeCalls.length, 4)
-      assert.deepEqual(f.layoutChanges, ['toolbar', 'toolbar'])
+      assert.deepEqual(f.layoutChanges, ['window', 'window'])
       for (let cycle = 0; cycle < 3; cycle++) {
         f.modeButton().click(); await f.flush()
         f.modeButton().click(); await f.flush()
@@ -167,6 +168,46 @@ test('all three native editor headers integrate, fall back on narrow widths, upd
       assert.equal(f.properties.size, 0)
       assert.equal(f.classes.size, 0)
       assert.equal(f.modeButton(), null)
+    }
+  } finally { globalThis.ResizeObserver = originalResize; globalThis.MutationObserver = originalMutation }
+})
+
+test('mode switches recalculate horizontal space through each shipped editor viewport without a window resize', async () => {
+  const originalResize = globalThis.ResizeObserver, originalMutation = globalThis.MutationObserver
+  const { installOnlyOfficeWindowChrome } = await loadAdapter()
+  try {
+    for (const [namespace, editor] of [['DE', 'documenteditor'], ['SSE', 'spreadsheeteditor'], ['PE', 'presentationeditor']]) {
+      const bundle = await readFile(new URL(`../public/web-apps/apps/${editor}/main/app.js`, import.meta.url), 'utf8')
+      const controllerStart = bundle.indexOf(`define("${editor}/main/app/controller/Viewport"`)
+      const methodStart = bundle.indexOf('onLayoutChanged:function', controllerStart)
+      const methodEnd = bundle.indexOf(',onWindowResize:', methodStart)
+      assert.ok(controllerStart >= 0 && methodStart > controllerStart && methodEnd > methodStart)
+      // Exercise the bundled handler: its toolbar branch skips horizontal layout.
+      const onLayoutChanged = new Function(`return (${bundle.slice(methodStart + 'onLayoutChanged:'.length, methodEnd)})`)()
+      let contentWidth = 920, horizontalPasses = 0
+      const f = fixture(namespace, (region, api, rightMenuClasses) => onLayoutChanged.call({
+        api,
+        viewport: {
+          vlayout: { doLayout() {} },
+          celayout: { doLayout() {} },
+          hlayout: { doLayout() {
+            horizontalPasses++
+            contentWidth = rightMenuClasses.has('lfos-view-hidden') ? 1000 : 920
+          } },
+        },
+      }, region))
+      const dispose = installOnlyOfficeWindowChrome(f.frame, f.chrome)
+      await f.flush()
+      for (let cycle = 0; cycle < 3; cycle++) {
+        f.modeButton().click()
+        assert.equal(contentWidth, 1000, `${namespace}: view mode fills the released width immediately`)
+        await f.flush()
+        f.modeButton().click()
+        assert.equal(contentWidth, 920, `${namespace}: edit mode immediately reserves space for the restored sidebar`)
+        await f.flush()
+      }
+      assert.equal(horizontalPasses, 6)
+      dispose(); await f.flush()
     }
   } finally { globalThis.ResizeObserver = originalResize; globalThis.MutationObserver = originalMutation }
 })
