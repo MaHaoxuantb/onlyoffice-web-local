@@ -17,7 +17,7 @@ import {
     getDocumentMimeType,
     c_oAscFileType2,
 } from '@/utils/x2t'
-import { getLFOS, saveFileToLFOS, releaseLFOSFile, setLFOSUnsavedChanges } from '@/services/lfos'
+import { getLFOS, openLFOSSearch, saveFileToLFOS, releaseLFOSFile, setLFOSUnsavedChanges } from '@/services/lfos'
 import { installOnlyOfficeWindowChrome } from '@/services/window-chrome'
 import { showAppMessage } from '@/services/feedback'
 // 设置prop
@@ -196,7 +196,7 @@ function createEditorInstance(config: {
         events: {
             onAppReady: () => {
                 applyEditorUIRestrictions()
-                installEditorSaveShortcut()
+                installEditorShortcuts()
                 void installWindowChrome(instanceChromeRevision)
                 // 设置媒体资源
                 if (documentMedia) {
@@ -259,7 +259,9 @@ onBeforeUnmount(() => {
     disposeWindowChrome?.()
     disposeWindowChrome = null
     window.removeEventListener('keydown', handleSaveShortcut, true)
+    window.removeEventListener('keydown', handleSearchShortcut, true)
     editorShortcutWindow?.removeEventListener('keydown', handleSaveShortcut, true)
+    editorShortcutWindow?.removeEventListener('keydown', handleSearchShortcut, true)
     editorShortcutWindow = null
     stopFileWatch?.()
     stopFileWatch = null
@@ -300,12 +302,25 @@ function handleSaveShortcut(event: KeyboardEvent) {
     editorWindow.on_native_message('file:save', '')
 }
 
-function installEditorSaveShortcut() {
+function handleSearchShortcut(event: KeyboardEvent) {
+    if (window.self === window.top || !(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey ||
+        event.key.toLowerCase() !== 'k') return
+
+    event.preventDefault()
+    event.stopImmediatePropagation()
+    void openLFOSSearch().catch(error => console.warn('Could not open LFOS Universal Search:', error))
+}
+
+function installEditorShortcuts() {
     window.removeEventListener('keydown', handleSaveShortcut, true)
+    window.removeEventListener('keydown', handleSearchShortcut, true)
     editorShortcutWindow?.removeEventListener('keydown', handleSaveShortcut, true)
+    editorShortcutWindow?.removeEventListener('keydown', handleSearchShortcut, true)
     window.addEventListener('keydown', handleSaveShortcut, true)
+    window.addEventListener('keydown', handleSearchShortcut, true)
     editorShortcutWindow = document.querySelector<HTMLIFrameElement>('.editor-container > iframe')?.contentWindow ?? null
     editorShortcutWindow?.addEventListener('keydown', handleSaveShortcut, true)
+    editorShortcutWindow?.addEventListener('keydown', handleSearchShortcut, true)
 }
 
 function loadEditorApi(): Promise<void> {

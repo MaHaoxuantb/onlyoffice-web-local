@@ -27,6 +27,9 @@ interface LFOSApi {
   capabilities: {
     has(name: string): boolean
   }
+  shell: {
+    openSearch(): Promise<null>
+  }
   feedback: {
     show(options: { message: string }): Promise<null>
   }
@@ -109,6 +112,13 @@ export async function showLFOSFeedback(message: string): Promise<boolean> {
   const lfos = await getLFOS()
   if (!lfos || !lfos.capabilities.has('feedback.show')) return false
   await lfos.feedback.show({ message: message.trim().slice(0, 500) })
+  return true
+}
+
+export async function openLFOSSearch(): Promise<boolean> {
+  const lfos = await getLFOS()
+  if (!lfos || !lfos.capabilities.has('shell.openSearch')) return false
+  await lfos.shell.openSearch()
   return true
 }
 

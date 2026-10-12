@@ -120,3 +120,17 @@ test('save callbacks preserve dirty work on cancellation, errors, edits during s
   assert.equal(error.dirty(), true)
   assert.equal(error.callbacks.at(-1).data.err_code, 1)
 })
+
+test('embedded editor forwards the canonical Universal Search shortcut through LFOS', async () => {
+  const [service, component] = await Promise.all([
+    readFile(new URL('../src/services/lfos.ts', import.meta.url), 'utf8'),
+    readFile(new URL('../src/components/DocumentHandler.vue', import.meta.url), 'utf8'),
+  ])
+
+  assert.match(service, /capabilities\.has\('shell\.openSearch'\)/)
+  assert.match(service, /lfos\.shell\.openSearch\(\)/)
+  assert.doesNotMatch(service, /shell\.(?:search|showSearch|openUniversalSearch)/)
+  assert.match(component, /event\.key\.toLowerCase\(\) !== 'k'/)
+  assert.match(component, /window\.addEventListener\('keydown', handleSearchShortcut, true\)/)
+  assert.match(component, /editorShortcutWindow\?\.addEventListener\('keydown', handleSearchShortcut, true\)/)
+})
