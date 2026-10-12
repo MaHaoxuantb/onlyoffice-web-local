@@ -34,10 +34,13 @@ function fixture(namespaceName) {
   }
   // Match the real Viewport template: this overlay starts with inline display:none.
   toolbarProperties.set('file-display', 'none')
-  const fileMenuClasses = new Set()
+  const fileMenuClasses = new Set(), rightMenuClasses = new Set()
   const fileMenu = {
     classList: { add: name => fileMenuClasses.add(name), remove: name => fileMenuClasses.delete(name) },
     style: { setProperty: (name, value) => toolbarProperties.set(`file-${name}`, value), removeProperty: name => toolbarProperties.delete(`file-${name}`) },
+  }
+  const rightMenu = {
+    classList: { add: name => rightMenuClasses.add(name), remove: name => rightMenuClasses.delete(name) },
   }
   const title = {
     querySelector: name => name.includes('.hedset') ? actions : extra,
@@ -68,7 +71,7 @@ function fixture(namespaceName) {
         remove: () => { modeButton = null },
       }
     },
-    querySelector: name => name === '#app-title' ? header : name === '#toolbar' ? toolbar : name === '#file-menu-panel' ? fileMenu : name === '#editor_sdk' ? editorSurface : title,
+    querySelector: name => name === '#app-title' ? header : name === '#toolbar' ? toolbar : name === '#file-menu-panel' ? fileMenu : name === '#right-menu' ? rightMenu : name === '#editor_sdk' ? editorSurface : title,
   }
   const win = {
     [namespaceName]: { getController: name => name === 'Main'
@@ -92,7 +95,7 @@ function fixture(namespaceName) {
   globalThis.ResizeObserver = class { constructor(fn) { resizer = fn } observe() {} disconnect() {} }
   globalThis.MutationObserver = class { observe() {} disconnect() {} }
   const flush = async () => { for (let i = 0; i < 8; i++) { await Promise.resolve(); const pending = [...queue.values()]; queue.clear(); pending.forEach(fn => fn()); } }
-  return { frame, chrome, item, toolbarItem, toolbarProperties, toolbarAttributes, surfaceProperties, surfaceAttributes, properties, classes, bindings, calls, keyEvents, resizeCalls, layoutChanges, modeOperations, modeButton: () => modeButton, flush, resize: () => resizer(), geometry: value => { geometry = value; subscribed?.(value) } }
+  return { frame, chrome, item, toolbarItem, toolbarProperties, toolbarAttributes, surfaceProperties, surfaceAttributes, fileMenuClasses, rightMenuClasses, properties, classes, bindings, calls, keyEvents, resizeCalls, layoutChanges, modeOperations, modeButton: () => modeButton, flush, resize: () => resizer(), geometry: value => { geometry = value; subscribed?.(value) } }
 }
 
 test('all three native editor headers integrate, fall back on narrow widths, update zoom, and clean up', async () => {
@@ -120,6 +123,7 @@ test('all three native editor headers integrate, fall back on narrow widths, upd
       assert.equal(f.surfaceProperties.has('pointer-events'), false)
       assert.equal(f.surfaceAttributes.has('inert'), false)
       assert.equal(f.toolbarItem.height, 0)
+      assert.ok(f.rightMenuClasses.has('lfos-view-hidden'))
       await f.flush()
       assert.deepEqual(f.resizeCalls, namespace === 'SSE' ? ['asc_Resize', 'asc_Resize'] : ['Resize', 'Resize'])
       assert.deepEqual(f.layoutChanges, ['toolbar'])
@@ -131,6 +135,7 @@ test('all three native editor headers integrate, fall back on narrow widths, upd
       assert.equal(f.toolbarProperties.has('pointer-events'), false)
       assert.equal(f.toolbarAttributes.has('aria-hidden'), false)
       assert.equal(f.toolbarItem.height, 92)
+      assert.equal(f.rightMenuClasses.has('lfos-view-hidden'), false)
       assert.equal(f.surfaceProperties.has('pointer-events'), false)
       assert.equal(f.surfaceAttributes.has('inert'), false)
       assert.equal(f.surfaceAttributes.has('aria-readonly'), false)

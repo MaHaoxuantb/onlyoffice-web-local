@@ -55,7 +55,8 @@ export function installOnlyOfficeWindowChrome(frame: HTMLIFrameElement, chrome: 
 
   const style = doc.createElement('style')
   style.textContent = `
-    #file-menu-panel.lfos-view-hidden { display: none !important; }
+    #file-menu-panel.lfos-view-hidden,
+    #right-menu.lfos-view-hidden { display: none !important; }
     #app-title.lfos-integrated-header { touch-action: none; }
     .lfos-integrated-header #box-document-title {
       box-sizing: border-box;
@@ -114,6 +115,7 @@ export function installOnlyOfficeWindowChrome(frame: HTMLIFrameElement, chrome: 
     const toolbarItem = layout?.getItem('toolbar')
     const toolbar = doc.querySelector<HTMLElement>('#toolbar')
     const fileMenu = doc.querySelector<HTMLElement>('#file-menu-panel')
+    const rightMenu = doc.querySelector<HTMLElement>('#right-menu')
     if (!layout || !toolbarItem || !toolbar) return
     if (mode === 'view') {
       if (toolbarItem.height > 0) editToolbarHeight = toolbarItem.height
@@ -123,6 +125,7 @@ export function installOnlyOfficeWindowChrome(frame: HTMLIFrameElement, chrome: 
       toolbar.setAttribute('aria-hidden', 'true')
       toolbarItem.height = 0
       fileMenu?.classList.add('lfos-view-hidden')
+      rightMenu?.classList.add('lfos-view-hidden')
     } else {
       toolbar.style.removeProperty('visibility')
       toolbar.style.removeProperty('pointer-events')
@@ -130,6 +133,7 @@ export function installOnlyOfficeWindowChrome(frame: HTMLIFrameElement, chrome: 
       // ONLYOFFICE owns the panel's inline display:none. Removing it exposes
       // an absolute, z-index:1003 panel above the ribbon (z-index:1001).
       fileMenu?.classList.remove('lfos-view-hidden')
+      rightMenu?.classList.remove('lfos-view-hidden')
       if (editToolbarHeight !== null) toolbarItem.height = editToolbarHeight
     }
     const resizeEditor = () => {
