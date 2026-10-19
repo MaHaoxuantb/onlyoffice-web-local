@@ -159,3 +159,21 @@ Spreadsheet, or Presentation and use the Wide, Narrow, zoom, and reset controls.
 The fixture has no file storage; use LunOS for persistence checks. Check native
 header actions and ribbon tabs, drag empty header areas, and confirm that narrow
 windows use the system title bar. Standalone `/` should keep the normal header.
+# Background conversion in LFOS
+
+X2T initialization, its virtual filesystem, and synchronous WASM conversion run
+in one dedicated classic worker per editor realm. Conversions serialize and clear
+temporary input/output/media files between jobs. The loader preserves the explicit
+`/wasm/x2t/` WASM location, including when the worker is served under hashed assets.
+Output and media bytes transfer to the editor; media URLs are created on the
+window thread and revoked when the editor unmounts. Blank documents initialize
+conversion lazily. Save errors/cancellation retain dirty work.
+
+Run `npm run test:unit`, `npm run type-check` and `npm run build-only`. For an
+actual WASM roundtrip, serve
+`/tests/fixtures/conversion-worker.html?worker=/html/assets/<built-x2t-worker>.js`
+from the local dev server. It opens a synthetic DOCX, returns a converted DOCX,
+and records frame/long-task observations while a typing field stays usable.
+The local DOCX check preserved the fixture text with frame p95 9.1 ms and no
+recorded task over 50 ms. Safari and image-heavy XLSX/PPTX/DOCX/PDF certification
+remain release validation tasks.

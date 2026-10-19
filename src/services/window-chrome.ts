@@ -55,6 +55,10 @@ export function installOnlyOfficeWindowChrome(frame: HTMLIFrameElement, chrome: 
 
   const style = doc.createElement('style')
   style.textContent = `
+    /* The File overlay lives outside the VBox layout. Its native inline top
+       includes the original title height; adjust the remaining space without
+       replacing that top (which ONLYOFFICE updates for ribbon preferences). */
+    #file-menu-panel { margin-top: var(--lfos-file-menu-offset, 0px); }
     #file-menu-panel.lfos-view-hidden,
     #right-menu.lfos-view-hidden { display: none !important; }
     #app-title.lfos-integrated-header { touch-action: none; }
@@ -189,6 +193,7 @@ export function installOnlyOfficeWindowChrome(frame: HTMLIFrameElement, chrome: 
     if (editorMode === 'view') updateToolbarVisibility(editorMode)
   }
   const resetHeader = () => {
+    doc.documentElement.style.removeProperty('--lfos-file-menu-offset')
     removeModeSwitchListeners?.()
     removeModeSwitchListeners = null
     restoreHeader?.()
@@ -233,6 +238,7 @@ export function installOnlyOfficeWindowChrome(frame: HTMLIFrameElement, chrome: 
         }
         header.classList.toggle('lfos-integrated-header', fits)
         const height = fits ? geometry.headerHeight : nativeHeight
+        doc.documentElement.style.setProperty('--lfos-file-menu-offset', `${height - nativeHeight}px`)
         if (item.height !== height) { item.height = height; layout.doLayout() }
       }
       if (pending || (fits === integrated && fits === (geometry.mode === 'overlay'))) return

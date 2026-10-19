@@ -60,21 +60,26 @@ test('new documents retain their destination; cancellation, exports, and failed 
 })
 
 test('first-save conversion initializes when Emscripten completed before script.onload', async () => {
-  globalThis.window = { Module: { calledRun: true, FS: { mkdir() {} } } }
+  globalThis.location = {origin: 'https://office.test'}
+  globalThis.importScripts = () => {globalThis.Module = {calledRun: true, FS: {mkdir() {}}}}
   globalThis.document = {
     createElement: () => ({}),
     head: { appendChild(script) { queueMicrotask(() => script.onload()) } },
   }
   try {
-    const source = await readFile(new URL('../src/utils/x2t.ts', import.meta.url), 'utf8')
+    const source = await readFile(new URL('../src/utils/x2t-engine.ts', import.meta.url), 'utf8')
     const { outputText } = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ES2022 } })
-    const { initX2T } = await import(`data:text/javascript;base64,${Buffer.from(outputText).toString('base64')}#${Math.random()}`)
-    const module = await initX2T()
-    assert.equal(module, window.Module)
-    assert.equal(await initX2T(), module)
+    const { X2TConverter } = await import(`data:text/javascript;base64,${Buffer.from(outputText).toString('base64')}#${Math.random()}`)
+    const converter = new X2TConverter()
+    const module = await converter.initialize()
+    assert.equal(module, globalThis.Module)
+    assert.equal(await converter.initialize(), module)
   } finally {
     delete globalThis.window
     delete globalThis.document
+    delete globalThis.Module
+    delete globalThis.importScripts
+    delete globalThis.location
   }
 })
 

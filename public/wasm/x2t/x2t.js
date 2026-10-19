@@ -42,7 +42,7 @@ Module.noExitRuntime = true;
 	// 	suffix = '';
 	// }
 
-	Module.locateFile = function(path, prefix) {
+	Module.locateFile = Module.locateFile || function(path, prefix) {
 		return prefix + path + suffix;
 	};
 })();

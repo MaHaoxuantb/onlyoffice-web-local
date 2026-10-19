@@ -10,7 +10,7 @@ async function loadAdapter() {
 }
 
 function fixture(namespaceName, nativeLayoutChanged) {
-  const properties = new Map(), classes = new Set(), events = new Map(), queue = new Map()
+  const properties = new Map(), rootProperties = new Map(), classes = new Set(), events = new Map(), queue = new Map()
   let frameId = 0, subscribed, resizer
   const actions = { scrollWidth: 240 }, extra = { scrollWidth: 0 }
   let modeButton = null
@@ -55,6 +55,10 @@ function fixture(namespaceName, nativeLayoutChanged) {
       : { Resize: () => resizeCalls.push('Resize') }),
   }
   const doc = {
+    documentElement: { style: {
+      setProperty: (name, value) => rootProperties.set(name, value),
+      removeProperty: name => rootProperties.delete(name),
+    } },
     head: { append() {} },
     body: {},
     createElement: tag => {
@@ -96,7 +100,7 @@ function fixture(namespaceName, nativeLayoutChanged) {
   globalThis.ResizeObserver = class { constructor(fn) { resizer = fn } observe() {} disconnect() {} }
   globalThis.MutationObserver = class { observe() {} disconnect() {} }
   const flush = async () => { for (let i = 0; i < 8; i++) { await Promise.resolve(); const pending = [...queue.values()]; queue.clear(); pending.forEach(fn => fn()); } }
-  return { frame, chrome, item, toolbarItem, toolbarProperties, toolbarAttributes, surfaceProperties, surfaceAttributes, fileMenuClasses, rightMenuClasses, properties, classes, bindings, calls, keyEvents, resizeCalls, layoutChanges, modeOperations, modeButton: () => modeButton, flush, resize: () => resizer(), geometry: value => { geometry = value; subscribed?.(value) } }
+  return { rootProperties, frame, chrome, item, toolbarItem, toolbarProperties, toolbarAttributes, surfaceProperties, surfaceAttributes, fileMenuClasses, rightMenuClasses, properties, classes, bindings, calls, keyEvents, resizeCalls, layoutChanges, modeOperations, modeButton: () => modeButton, flush, resize: () => resizer(), geometry: value => { geometry = value; subscribed?.(value) } }
 }
 
 test('all three native editor headers integrate, fall back on narrow widths, update zoom, and clean up', async () => {
@@ -109,6 +113,7 @@ test('all three native editor headers integrate, fall back on narrow widths, upd
       await f.flush()
       assert.deepEqual(f.calls, [true])
       assert.equal(f.item.height, 48)
+      assert.equal(f.rootProperties.get('--lfos-file-menu-offset'), '20px')
       assert.equal(f.properties.get('--lfos-window-chrome-leading'), '108px')
       assert.ok(f.classes.has('lfos-integrated-header'))
       assert.equal(f.bindings.length, 1)
@@ -151,12 +156,14 @@ test('all three native editor headers integrate, fall back on narrow widths, upd
       f.frame.clientWidth = 320; f.resize(); await f.flush()
       assert.equal(f.calls.at(-1), false)
       assert.equal(f.item.height, 28)
+      assert.equal(f.rootProperties.get('--lfos-file-menu-offset'), '0px')
       assert.equal(f.classes.size, 0)
       f.frame.clientWidth = 1000; f.resize(); await f.flush()
       assert.equal(f.calls.at(-1), true)
       f.geometry({ canIntegrate: true, mode: 'overlay', headerHeight: 24, leadingInset: 54, trailingInset: 32 })
       await f.flush()
       assert.equal(f.item.height, 24)
+      assert.equal(f.rootProperties.get('--lfos-file-menu-offset'), '-4px')
       // The outer iframe loading resets shell integration; reactivation is explicit.
       f.geometry({ canIntegrate: true, mode: 'titlebar', headerHeight: 24, leadingInset: 54, trailingInset: 32 })
       await f.flush()
@@ -166,6 +173,7 @@ test('all three native editor headers integrate, fall back on narrow widths, upd
       assert.equal(f.item.height, 28)
       assert.equal(f.bindings.length, 0)
       assert.equal(f.properties.size, 0)
+      assert.equal(f.rootProperties.size, 0)
       assert.equal(f.classes.size, 0)
       assert.equal(f.modeButton(), null)
     }

@@ -13,6 +13,7 @@ import {
     initX2TScript,
     initX2T,
     convertDocument,
+    releaseConversionWorker,
     convertBinToDocument,
     getDocumentMimeType,
     c_oAscFileType2,
@@ -255,6 +256,7 @@ async function openFile() {
 }
 
 onBeforeUnmount(() => {
+    releaseConversionWorker()
     chromeRevision += 1
     disposeWindowChrome?.()
     disposeWindowChrome = null
@@ -391,7 +393,6 @@ function handleDocumentStateChange(event: { data?: boolean }) {
 }
 
 async function handleSaveDocument(event: SaveEvent) {
-    console.log('Save document event:', event)
     if (saveInProgress) return
     const wasDirty = documentDirty
     const isCopy = event.data?.option?.actionType === 6
