@@ -24,7 +24,12 @@ export async function convertDocument(file: File): Promise<ConversionResult> {
     return {...result, media}
 }
 /** The editor callback owns this snapshot; transferring releases its sender bytes. */
-export const convertBinToDocument = (bin: Uint8Array, name: string, extension = 'DOCX') => {
+export const convertBinToDocument = (bin: Uint8Array | string, name: string, extension = 'DOCX') => {
+    // With nobase64=false the editor sends a DOCY/XLSY/PPTY snapshot string.
+    // Constructing Uint8Array from that string silently produces zero bytes.
+    if (typeof bin === 'string') {
+        return request<{fileName: string; data: Uint8Array}>('save', [bin, name, extension])
+    }
     const owned = bin.buffer instanceof ArrayBuffer && bin.byteOffset === 0 && bin.byteLength === bin.buffer.byteLength ? bin : new Uint8Array(bin)
     return request<{fileName: string; data: Uint8Array}>('save', [owned, name, extension], [owned.buffer as ArrayBuffer])
 }

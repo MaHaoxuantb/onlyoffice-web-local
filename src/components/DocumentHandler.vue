@@ -348,7 +348,7 @@ function loadEditorApi(): Promise<void> {
 
 interface SaveEvent {
     data: {
-        data: { data: Uint8Array }
+        data: { data: Uint8Array | string }
         option: {
             outputformat: number
             actionType?: number

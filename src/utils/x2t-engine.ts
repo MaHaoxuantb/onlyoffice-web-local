@@ -339,7 +339,7 @@ export class X2TConverter {
 
     /** Convert the editor's binary format to a downloadable Office document. */
     async convertBinToDocument(
-        bin: Uint8Array,
+        bin: Uint8Array | string,
         originalFileName: string,
         targetExt = 'DOCX',
     ): Promise<BinConversionResult> {
